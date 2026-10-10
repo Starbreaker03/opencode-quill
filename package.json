@@ -1,6 +1,6 @@
 {
   "name": "opencode-quill",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Local word autocomplete for the OpenCode V2 prompt composer.",
   "type": "module",
   "license": "MIT",
