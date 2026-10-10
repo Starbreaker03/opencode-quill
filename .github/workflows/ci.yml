@@ -56,8 +56,11 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags origin "${{ github.base_ref }}"
             from=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
-          else
+            bunx commitlint --from "$from" --to HEAD --verbose
+          elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
             from="${{ github.event.before }}"
             case "$from" in 0000000*) from="HEAD~1" ;; esac
+            bunx commitlint --from "$from" --to HEAD --verbose
+          else
+            bunx commitlint --last --verbose
           fi
-          bunx commitlint --from "$from" --to HEAD --verbose
