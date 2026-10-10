@@ -1,3 +1,4 @@
+/** @jsxImportSource @opentui/solid */
 import { Plugin } from "@opencode/plugin/tui"
 import { InputRenderable, TextareaRenderable, type BoxRenderable } from "@opentui/core"
 import { createEffect, createRoot, createSignal, onCleanup, untrack } from "solid-js"

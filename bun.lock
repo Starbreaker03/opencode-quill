@@ -21,10 +21,16 @@
       },
       "peerDependencies": {
         "@opencode/plugin": "*",
-        "@opentui/core": ">=0.5.17",
-        "@opentui/solid": ">=0.5.17",
+        "@opentui/core": ">=0.5.17 <0.6.0",
+        "@opentui/solid": ">=0.5.17 <0.6.0",
         "solid-js": "*",
       },
+      "optionalPeers": [
+        "@opencode/plugin",
+        "@opentui/core",
+        "@opentui/solid",
+        "solid-js",
+      ],
     },
   },
   "packages": {

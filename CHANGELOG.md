@@ -4,6 +4,15 @@ All notable changes are documented in this file using
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-10-10
+
+### Fixed
+
+- **ci:** Handle root commit in commitlint range
+- Add `@jsxImportSource @opentui/solid` pragma to the TUI entrypoint so npm cache compilation doesn't fall back to React.
+- Constrain `@opentui/core` and `@opentui/solid` peer dependencies to `<0.6.0` with `peerDependenciesMeta` set to optional, preventing conflicting nested OpenTUI versions.
+- Support `/quill clear` and `/quill reset` to wipe learned vocabulary and n-gram state.
+
 ## [0.1.0] - 2026-10-10
 
 ### Added
@@ -17,4 +26,5 @@ All notable changes are documented in this file using
 - `/quill` command and command palette action to toggle autocomplete.
 - Local installer script, full test suite, CI workflows, and release tooling.
 
+[0.1.1]: https://github.com/ozandogrultan/opencode-quill/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ozandogrultan/opencode-quill/releases/tag/v0.1.0
