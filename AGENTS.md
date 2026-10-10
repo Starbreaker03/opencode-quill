@@ -52,6 +52,8 @@ bun run lint:sh
 - Ghost owns empty-composer next-prompt suggestions; Quill targets non-empty prose drafts.
 - Ghost text dim level must match Ghost (`0.55` opacity over muted theme text).
 - Remove listeners and render callbacks on unload; never write to destroyed editors.
+- Keep `@opentui/core` and `@opentui/solid` as `dependencies` on the `0.5.x` line OpenCode
+  bundles; as peers, npm resolves `@opencode/plugin`'s optional peers to the newest release.
 - Keep learned prompt data out of Git and package tarballs.
 - Keep installed sources identical to this repository when installing updates.
 

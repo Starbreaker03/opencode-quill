@@ -46,7 +46,22 @@ Press <kbd>Tab</kbd> or <kbd>→</kbd> to accept it, or <kbd>Esc</kbd> to dismis
 
 ## Install
 
-### From this repository (recommended)
+### From npm (recommended)
+
+Add the package to `plugins` in `~/.config/opencode/cli.json`:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": [
+    "opencode-quill@0.1.4"
+  ]
+}
+```
+
+OpenCode installs the package and its dependencies on the next start.
+
+### From this repository
 
 ```sh
 git clone https://github.com/ozandogrultan/opencode-quill.git
@@ -121,7 +136,10 @@ Custom keybindings can also be overridden using OpenCode's standard
 ## Commands
 
 - `/quill` — Toggle word autocomplete on or off (persisted across sessions).
-- **Command Palette (`Ctrl+P`)** — Includes **Word autocomplete: on/off**.
+- `/quill on` / `/quill off` — Set autocomplete explicitly.
+- `/quill clear` (alias `/quill reset`) — Erase everything Quill has learned from your prompts.
+- **Command Palette (`Ctrl+P`)** — Includes **Word autocomplete: on/off** and
+  **Clear word autocomplete history**.
 
 ## Learning and Prediction Architecture
 
@@ -197,7 +215,7 @@ persists state as clean JSON files inside your standard XDG state directory:
 
 **Privacy Guarantee:**
 - The snapshot file stores **only token frequency pairs** (e.g. `["refactor", 12]`, `["run\0tests", 5]`)
-  and hashed message IDs.
+  and the IDs of processed messages (`<sessionID>:<messageID>`).
 - **Raw prompt text is never written to disk or stored in snapshots.**
 - The storage files stay strictly on your local machine and are never tracked in Git
   or included in npm packages.
