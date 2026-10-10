@@ -4,6 +4,12 @@ All notable changes are documented in this file using
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-10-10
+
+### Fixed
+
+- **tui:** Pin opentui peer dependencies to ^0.5.17 for arborist compatibility
+
 ## [0.1.2] - 2026-10-10
 
 ### Fixed
@@ -32,6 +38,7 @@ All notable changes are documented in this file using
 - `/quill` command and command palette action to toggle autocomplete.
 - Local installer script, full test suite, CI workflows, and release tooling.
 
+[0.1.3]: https://github.com/ozandogrultan/opencode-quill/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ozandogrultan/opencode-quill/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ozandogrultan/opencode-quill/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ozandogrultan/opencode-quill/releases/tag/v0.1.0
