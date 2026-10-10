@@ -56,7 +56,7 @@ export default Plugin.define({
       }, () => dimGhostColor(context.theme.text.muted), context.renderer)
     }
 
-    const learn = async (sessionID: string) => {
+    const learn = async (sessionID: string, announce = true) => {
       if (disposed || !settings.enabled || inFlight.has(sessionID)) return
       inFlight.add(sessionID)
       try {
@@ -72,10 +72,10 @@ export default Plugin.define({
           const latest = new PersonalModel(draft.snapshot)
           if (latest.observe(prompts)) draft.snapshot = latest.snapshot()
         })
-      } catch {
-        if (!disposed && !warned) {
+      } catch (error) {
+        if (announce && !disposed && !warned) {
           warned = true
-          context.ui.toast.show({ title: "Quill", message: "History learning unavailable; vocabulary completion is still active.", variant: "warning" })
+          context.ui.toast.show({ title: "Quill", message: `History learning unavailable (${sessionID}: ${error instanceof Error ? error.message : String(error)}); vocabulary completion is still active.`, variant: "warning" })
         }
       } finally {
         inFlight.delete(sessionID)
@@ -98,11 +98,11 @@ export default Plugin.define({
       createEffect(() => {
         if (!settings.enabled) return
         const route = context.ui.router.current()
-        if (route.type === "session") untrack(() => { void learn(route.sessionID) })
+        if (route.type === "session") untrack(() => { void learn(route.sessionID, false) })
         for (const session of context.data.session.list().filter((session) => !session.parentID).sort((a, b) => b.time.updated - a.time.updated).slice(0, 8)) {
           if (seeded.has(session.id)) continue
           seeded.add(session.id)
-          untrack(() => { void learn(session.id) })
+          untrack(() => { void learn(session.id, false) })
         }
       })
       return dispose
