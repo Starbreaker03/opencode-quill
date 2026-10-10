@@ -1,0 +1,20 @@
+# Changelog
+
+All notable changes are documented in this file using
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+[Semantic Versioning](https://semver.org/).
+
+## [0.1.0] - 2026-10-10
+
+### Added
+
+- Local word autocomplete and next-word prediction plugin for OpenCode V2.
+- High-frequency English vocabulary prior derived from SUBTLEX word frequencies.
+- Online absolute-discounting n-gram model learning from submitted session prompts.
+- Inline ghost-text rendering at visual cursor with matching Ghost dim level (`0.55`).
+- Safe acceptance (<kbd>Tab</kbd>, <kbd>→</kbd>) and dismissal (<kbd>Esc</kbd>) without draft submission.
+- Prose-aware filtering suppressing suggestions in code, paths, URLs, and shell commands.
+- `/quill` command and command palette action to toggle autocomplete.
+- Local installer script, full test suite, CI workflows, and release tooling.
+
+[0.1.0]: https://github.com/ozandogrultan/opencode-quill/releases/tag/v0.1.0

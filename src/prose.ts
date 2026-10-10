@@ -1,0 +1,80 @@
+const WORD = /[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*/gu
+const WHOLE_WORD = /^[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*$/u
+const WORD_END = /[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*$/u
+
+export type Word = { text: string; start: number; end: number }
+export type CompletionQuery = { before: string; prefix: string; next: boolean }
+
+export function normalizeWord(word: string): string {
+  return word.normalize("NFC").replaceAll("’", "'").toLowerCase()
+}
+
+export function isWord(word: string): boolean {
+  return WHOLE_WORD.test(word) && [...word].length <= 32
+}
+
+function blank(text: string): string {
+  return text.replace(/[^\n]/g, " ")
+}
+
+export function maskProse(text: string): string {
+  let masked = text.replace(/(^|\n)[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n[ \t]*\2[^\n]*(?=\n|$)|$)/g, blank)
+  masked = masked.replace(/(`+)[\s\S]*?(?:\1|$)/g, blank)
+  masked = masked.replace(/(?:https?:\/\/|www\.)\S+|\[[^\]\n]*\]\([^\)\n]*\)|<[^>\n]+>/g, blank)
+  masked = masked.replace(/^[ \t]*(?:[\/!$]|(?:const|let|var|function|class|import|export)\s|(?:Traceback|Error:)\b).*$/gm, blank)
+  masked = masked.replace(/^ {4,}.*$/gm, blank)
+  masked = masked.replace(/\S+/g, (token) => {
+    const core = token.replace(/^["“‘([{]+|["”’),;:!?}\]]+$/g, "")
+    if (/[\/_@=\\<>-]|\d|[\p{Ll}][\p{Lu}]/u.test(core) || /^[.~]/.test(core)) return blank(token)
+    if (/[^.]+\.[^.]+|\.\.|--/.test(core)) return blank(token)
+    return token
+  })
+  return masked
+}
+
+export function proseWords(text: string): Word[] {
+  const masked = maskProse(text)
+  return [...masked.matchAll(WORD)]
+    .filter((match) => isWord(match[0]))
+    .map((match) => ({ text: normalizeWord(match[0]), start: match.index, end: match.index + match[0].length }))
+}
+
+export function proseSequences(text: string): string[][] {
+  const words = proseWords(text)
+  const sequences: string[][] = []
+  let previous = -1
+  for (const word of words) {
+    if (previous < 0 || !/^[ \t]+$/.test(text.slice(previous, word.start))) sequences.push([])
+    sequences.at(-1)!.push(word.text)
+    previous = word.end
+  }
+  return sequences
+}
+
+export function leftContext(before: string): string[] {
+  const words = proseWords(before)
+  const result: string[] = []
+  let end = before.length
+  for (let index = words.length - 1; index >= 0 && result.length < 2; index--) {
+    const word = words[index]
+    if (!/^[ \t]*$/.test(before.slice(word.end, end))) break
+    result.unshift(word.text)
+    end = word.start
+  }
+  return result
+}
+
+export function completionQuery(text: string, characterOffset: number): CompletionQuery | undefined {
+  if (!text.trim() || characterOffset !== text.length || text.length > 16_000) return
+  const masked = maskProse(text)
+  const prefix = WORD_END.exec(text)?.[0]
+  if (prefix) {
+    const start = text.length - prefix.length
+    if (masked.slice(start) !== prefix || !isWord(prefix)) return
+    const preceding = text[start - 1]
+    if (preceding && !/[ \t\n"“([{]/.test(preceding)) return
+    return { before: text.slice(0, start).slice(-2000), prefix, next: false }
+  }
+  if (!/[ \t]$/.test(text) || !leftContext(text).length) return
+  return { before: text.slice(-2000), prefix: "", next: true }
+}
