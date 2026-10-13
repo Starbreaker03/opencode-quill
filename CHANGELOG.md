@@ -4,6 +4,12 @@ All notable changes are documented in this file using
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-10-13
+
+### Fixed
+
+- **prediction:** Guard typo corrections and learning races
+
 ## [0.2.0] - 2026-10-13
 
 ### Added
@@ -56,6 +62,7 @@ All notable changes are documented in this file using
 - `/quill` command and command palette action to toggle autocomplete.
 - Local installer script, full test suite, CI workflows, and release tooling.
 
+[0.2.1]: https://github.com/ozandogrultan/opencode-quill/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ozandogrultan/opencode-quill/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/ozandogrultan/opencode-quill/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/ozandogrultan/opencode-quill/compare/v0.1.3...v0.1.4
