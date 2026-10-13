@@ -18,7 +18,7 @@ gh workflow run release.yml -f bump=patch   # or minor / major
 ```
 
 That workflow checks out `main`, bumps the version, commits and tags it,
-pushes, publishes to npm, and cuts the GitHub release with generated notes.
+pushes, publishes to npm, and cuts the GitHub release using the new CHANGELOG section as its notes.
 
 Do this from a green `main` — it releases whatever is there.
 
@@ -63,7 +63,7 @@ Renaming that workflow file breaks publishing; update the npm setting too.
 
 - npm: `npm view opencode-quill version` and
   `npm view opencode-quill dist.attestations` (provenance present).
-- GitHub: a release exists for the tag, with generated notes.
+- GitHub: a release exists for the tag, with the CHANGELOG section as its body.
 
 ## Manual fallback
 

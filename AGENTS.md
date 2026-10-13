@@ -14,19 +14,21 @@ README.md is the user-facing contract — read it before changing behavior.
 - `src/options.ts` — option parsing and validation.
 - `src/keymap.ts` — reactive keymap layer construction for accept and dismiss actions.
 - `test/` — Bun unit and installer tests.
+- `bunfig.toml` — preloads the OpenTUI Solid transform for tests.
 - `install.sh` — copies sources and registers a directory in global `cli.json`.
 - `scripts/changelog.sh`, `tests/changelog.sh` — shared release tooling.
 - `.github/workflows/` — CI and npm trusted-publisher releases.
 
 ## Learning, Prediction, and Storage
 
-- **Learning Pipeline:** Listens to session lifecycle events (`session.execution.started`,
-  `session.execution.succeeded`, `session.inbox.delivered`). Messages are deduplicated
-  by ID (capped at 8,000 IDs). Prose is masked against code, paths, URLs, shell
-  commands, and pastes over 4,000 chars / 12 lines.
-- **Model Growth:** Increments word frequencies, bigrams (`u\0w`), and trigrams
-  (`u\0v\0w`). New words require at least two occurrences across distinct prompts.
-  Prunes to top 8,000 words and 30,000 bigrams/trigrams on persistence.
+- **Learning Pipeline:** Learns from user prompts via the session lifecycle events
+  (`session.execution.started`, `session.execution.succeeded`,
+  `session.inbox.delivered`) and a startup/route backfill of recent sessions in
+  `src/tui.tsx`. Messages are deduplicated by `<sessionID>:<messageID>`. Prose is
+  masked against code, paths, URLs, shell commands, and large pastes.
+- **Model Growth:** Counts words, bigrams (`u\0w`), and trigrams (`u\0v\0w`). A word
+  joins the vocabulary once it has been seen more than once. The model is pruned
+  on persistence; limits live as constants in `src/predictor.ts`.
 - **Storage Location:** Durable JSON state managed via OpenCode's `context.storage.store()`
   under `~/.local/state/opencode/<channel>/tui/plugin.quill.learning.json` and
   `plugin.quill.settings.json`. Raw prompt text is never written to disk or stored.
@@ -50,9 +52,9 @@ bun run lint:sh
 - Capture keys only with a visible suggestion in the focused normal composer.
 - Preserve host handlers, hints, selections, attachments, undo state, and other plugins.
 - Ghost owns empty-composer next-prompt suggestions; Quill targets non-empty prose drafts.
-- Ghost text dim level must match Ghost (`0.55` opacity over muted theme text).
+- Ghost text dim level must match Ghost (dimmed muted theme text; see `dimGhostColor` in `src/ghost.ts`).
 - Remove listeners and render callbacks on unload; never write to destroyed editors.
-- Keep `@opentui/core` and `@opentui/solid` as `dependencies` on the `0.5.x` line OpenCode
+- Keep `@opentui/core` and `@opentui/solid` as `dependencies` on the line OpenCode
   bundles; as peers, npm resolves `@opencode/plugin`'s optional peers to the newest release.
 - Keep learned prompt data out of Git and package tarballs.
 - Keep installed sources identical to this repository when installing updates.

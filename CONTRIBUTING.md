@@ -12,8 +12,7 @@ bun install
 ```
 
 There is no build step. `src/` holds the V2 plugin and its pure helpers,
-`test/`
-holds the bun tests, `tests/changelog.sh` and `scripts/changelog.sh` own the
+`test/` holds the bun tests, `tests/changelog.sh` and `scripts/changelog.sh` own the
 release bookkeeping, and `opencode` transpiles the TSX source at load time.
 
 ## Before you open a PR
@@ -100,11 +99,11 @@ and a tag without a matching section uses GitHub-generated notes.
 `scripts/changelog.sh` performs the same steps locally:
 
 ```bash
-scripts/changelog.sh draft          # classify commits since the last tag (prints only)
-scripts/changelog.sh release 0.2.0  # create a dated section and compare link
-scripts/changelog.sh notes 0.2.0    # the release-notes body for a version
-scripts/changelog.sh notes          # the latest released version
-scripts/changelog.sh check          # structure: headings and compare links
+scripts/changelog.sh draft              # classify commits since the last tag (prints only)
+scripts/changelog.sh release <version>  # create a dated section and compare link
+scripts/changelog.sh notes <version>    # the release-notes body for a version
+scripts/changelog.sh notes              # the latest released version
+scripts/changelog.sh check              # structure: headings and compare links
 ```
 
 `bun run test:changelog` covers the tooling, and `check` also runs in CI: every
