@@ -126,7 +126,8 @@ export class ComposerGhost {
   }
 
   dismiss(): boolean {
-    if (this.disposed || !this.shown || !eligibleComposer(this.view()) || this.editor.plainText !== this.shown.text) return false
+    if (this.disposed || !this.shown || !eligibleComposer(this.view()) ||
+      this.editor.plainText !== this.shown.text || this.offset() !== this.shown.offset) return false
     this.dismissed = this.editor.plainText
     this.shown = undefined
     this.editor.requestRender()

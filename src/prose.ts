@@ -3,7 +3,7 @@ const WHOLE_WORD = /^[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*$/u
 const WORD_END = /[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*$/u
 
 export type Word = { text: string; start: number; end: number }
-export type CompletionQuery = { before: string; prefix: string; next: boolean }
+export type CompletionQuery = { before: string; prefix: string; next: boolean; words?: readonly Word[] }
 
 export function normalizeWord(word: string): string {
   return word.normalize("NFC").replaceAll("’", "'").toLowerCase()
@@ -32,8 +32,7 @@ export function maskProse(text: string): string {
   return masked
 }
 
-export function proseWords(text: string): Word[] {
-  const masked = maskProse(text)
+export function proseWords(text: string, masked = maskProse(text)): Word[] {
   return [...masked.matchAll(WORD)]
     .filter((match) => isWord(match[0]))
     .map((match) => ({ text: normalizeWord(match[0]), start: match.index, end: match.index + match[0].length }))
@@ -51,8 +50,7 @@ export function proseSequences(text: string): string[][] {
   return sequences
 }
 
-export function leftContext(before: string): string[] {
-  const words = proseWords(before)
+export function leftContext(before: string, words: readonly Word[] = proseWords(before)): string[] {
   const result: string[] = []
   let end = before.length
   for (let index = words.length - 1; index >= 0 && result.length < 2; index--) {
@@ -68,13 +66,17 @@ export function completionQuery(text: string, characterOffset: number): Completi
   if (!text.trim() || characterOffset !== text.length || text.length > 16_000) return
   const masked = maskProse(text)
   const prefix = WORD_END.exec(text)?.[0]
+  let end = text.length
   if (prefix) {
     const start = text.length - prefix.length
     if (masked.slice(start) !== prefix || !isWord(prefix)) return
     const preceding = text[start - 1]
     if (preceding && !/[ \t\n"“([{]/.test(preceding)) return
-    return { before: text.slice(0, start).slice(-2000), prefix, next: false }
-  }
-  if (!/[ \t]$/.test(text) || !leftContext(text).length) return
-  return { before: text.slice(-2000), prefix: "", next: true }
+    end = start
+  } else if (!/[ \t]$/.test(text)) return
+  const start = Math.max(0, end - 2000)
+  const before = text.slice(start, end)
+  const words = proseWords(before, masked.slice(start, end))
+  if (!prefix && !leftContext(before, words).length) return
+  return { before, prefix: prefix ?? "", next: !prefix, words }
 }

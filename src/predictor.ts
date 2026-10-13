@@ -12,6 +12,7 @@ export type Prompt = { id: string; text: string }
 export type Prediction = { suffix: string; word: string; confidence: number; replace?: number }
 
 const DISCOUNT = 0.5
+const MIN_TYPO_SCORE = 0.000001
 const PRIOR_LIMIT = 20_000
 const WORD_LIMIT = 8000
 const CONTEXT_LIMIT = 30_000
@@ -118,27 +119,34 @@ function editKind(source: string, target: string, targetLength = target.length):
   }
   for (let j = i; j < targetLength; j++) if (source.charCodeAt(j + 1) !== target.charCodeAt(j)) return
   const doubled = (i > 0 && source.charCodeAt(i) === source.charCodeAt(i - 1)) || (i + 1 < sourceLength && source.charCodeAt(i) === source.charCodeAt(i + 1))
-  return doubled || sourceLength >= 5 ? "delete" : undefined
+  return doubled ? "delete" : undefined
 }
 
-function typoWeight(prefix: string, word: string): number {
+function typoWeight(prefix: string, word: string, wholeWord = false): number {
   const prefixLength = prefix.length
   const wordLength = word.length
   if (prefixLength < 3) return 0
+  const sameHead = prefix[0] === word[0]
+  const swappedHead = prefixLength >= 5 && prefix[0] === word[1] && prefix[1] === word[0]
+  if (!sameHead && !swappedHead) return 0
   const full = editKind(prefix, word)
+  if (wholeWord && !full) return 0
   if (full === "transpose") return 0.25
-  if (full === "insert" || full === "delete") return prefixLength === 3 && prefix.charCodeAt(0) !== word.charCodeAt(0) ? 0 : 0.06
-  if (full === "substitute") return prefixLength >= 4 && prefix.charCodeAt(0) === word.charCodeAt(0) ? 0.04 : 0
-  if (prefixLength < 4 || wordLength <= prefixLength) return 0
-  const head = prefix.charCodeAt(0) === word.charCodeAt(0) ||
-    (prefix.charCodeAt(0) === word.charCodeAt(1) && prefix.charCodeAt(1) === word.charCodeAt(0))
-  if (!head) return 0
+  if (full && prefixLength < 5 && !word.includes("'")) return 0
+  if (full === "insert" || full === "delete") return 0.06
+  if (full === "substitute") return 0.04
+  if (prefixLength < 5 || wordLength <= prefixLength) return 0
   const partial = editKind(prefix, word, prefixLength)
   if (partial === "transpose") return 0.06
   if (partial === "substitute") return 0.02
   if (wordLength > prefixLength + 1 && editKind(prefix, word, prefixLength + 1) === "insert") return 0.03
-  if (prefixLength >= 5 && editKind(prefix, word, prefixLength - 1) === "delete") return 0.02
+  if (editKind(prefix, word, prefixLength - 1) === "delete") return 0.02
   return 0
+}
+
+function typoConfidence(score: number, total: number): number | undefined {
+  if (score < MIN_TYPO_SCORE || score / (total || 1) < 0.45) return
+  return score
 }
 
 function applyCase(source: string, word: string): string {
@@ -147,7 +155,7 @@ function applyCase(source: string, word: string): string {
   if (first && first === first.toUpperCase() && first !== first.toLowerCase()) {
     return word[0].toUpperCase() + word.slice(1)
   }
-  return word === "i" ? "I" : word
+  return word === "i" || word.startsWith("i'") ? `I${word.slice(1)}` : word
 }
 
 export class WordPredictor {
@@ -158,7 +166,6 @@ export class WordPredictor {
   private bigramTotals = new Map<string, { total: number; types: number }>()
   private trigramTotals = new Map<string, { total: number; types: number }>()
   private vocabulary: string[] = []
-  private vocabularyByLength = new Map<number, string[]>()
 
   constructor(prior: readonly Frequency[]) {
     for (const { word, count } of prior) {
@@ -177,11 +184,18 @@ export class WordPredictor {
     this.bigramTotals = totals(this.personal.bigrams)
     this.trigramTotals = totals(this.personal.trigrams)
     this.vocabulary = [...new Set([...this.prior.keys(), ...[...this.personal.words].filter(([, count]) => count >= 2).map(([word]) => word)])].sort()
-    this.vocabularyByLength.clear()
-    for (const word of this.vocabulary) {
-      const words = this.vocabularyByLength.get(word.length) ?? []
-      words.push(word)
-      this.vocabularyByLength.set(word.length, words)
+  }
+
+  private *nearbyWords(prefix: string, wholeWord = false): IterableIterator<string> {
+    const heads = [prefix[0]]
+    if (prefix.length >= 5 && prefix[0] !== prefix[1]) heads.push(prefix[1] + prefix[0])
+    const maxLength = wholeWord || prefix.length < 5 ? prefix.length + 1 : Infinity
+    for (const head of heads) {
+      for (let index = lowerBound(this.vocabulary, head); index < this.vocabulary.length; index++) {
+        const word = this.vocabulary[index]
+        if (!word.startsWith(head)) break
+        if (word.length >= prefix.length - 1 && word.length <= maxLength) yield word
+      }
     }
   }
 
@@ -214,28 +228,29 @@ export class WordPredictor {
       }
       let best = word
       let bestScore = 0
-      for (let length = word.length - 1; length <= word.length + 1; length++) {
-        for (const candidate of this.vocabularyByLength.get(length) ?? []) {
-          const kind = editKind(word, candidate)
-          const weight = kind === "transpose" ? 0.25 : kind ? 0.05 : 0
-          if (!weight) continue
-          const score = this.score(candidate, resolved) * weight
-          if (score > bestScore) {
-            best = candidate
-            bestScore = score
-          }
+      let sum = 0
+      for (const candidate of this.nearbyWords(word, true)) {
+        if ((this.bigramTotals.get(candidate)?.total ?? 0) < 2) continue
+        const weight = typoWeight(word, candidate, true)
+        if (!weight) continue
+        const score = this.score(candidate, resolved) * weight
+        sum += score
+        if (score > bestScore) {
+          best = candidate
+          bestScore = score
         }
       }
-      resolved.push(best)
+      resolved.push(typoConfidence(bestScore, sum) === undefined ? word : best)
     }
     return resolved
   }
 
   complete(query: CompletionQuery): Prediction | undefined {
     const prefix = normalizeWord(query.prefix)
+    const words = query.words ?? proseWords(query.before)
     const local = new Map<string, number>()
-    for (const word of proseWords(query.before)) increment(local, word.text)
-    const context = this.resolveContext(leftContext(query.before), local)
+    for (const word of words) increment(local, word.text)
+    const context = this.resolveContext(leftContext(query.before, words), local)
     const evidence = this.bigramTotals.get(context.at(-1) ?? "")?.total ?? 0
     if (query.next && evidence < 2) return
     if (!query.next && [...prefix].length < 2 && evidence < 2) return
@@ -261,25 +276,22 @@ export class WordPredictor {
           bestWeight = weight
         }
       }
-      const confidence = query.next ? bestScore : bestScore / (sum || 1)
-      if (!best || best === prefix || confidence < (query.next ? 0.55 : bestWeight < 1 ? 0.45 : 0.3)) return
-      if (bestWeight < 1) {
+      const confidence = bestWeight < 1 ? typoConfidence(bestScore, sum) : query.next ? bestScore : bestScore / (sum || 1)
+      if (!best || best === prefix || confidence === undefined || (bestWeight === 1 && confidence < (query.next ? 0.55 : 0.3))) return
+      if (bestWeight < 1 || (!query.next && best.startsWith("i'") && query.prefix[0] === "i")) {
         return { suffix: applyCase(query.prefix, best), word: best, confidence, replace: query.prefix.length }
       }
       let suffix = best.slice(prefix.length)
       if (query.prefix.length > 1 && query.prefix === query.prefix.toUpperCase()) suffix = suffix.toUpperCase()
-      if (query.next && best === "i") suffix = "I"
+      if (query.next) suffix = applyCase("", best)
       return { suffix, word: best, confidence }
     }
     const completion = suggest()
     if (completion || query.next || prefix.length < 3 || candidates.has(prefix)) return completion
-    for (const [length, words] of this.vocabularyByLength) {
-      if (length < prefix.length - 1) continue
-      for (const word of words) {
-        if (candidates.has(word)) continue
-        const weight = typoWeight(prefix, word)
-        if (weight > 0) candidates.set(word, weight)
-      }
+    for (const word of this.nearbyWords(prefix)) {
+      if (candidates.has(word)) continue
+      const weight = typoWeight(prefix, word)
+      if (weight > 0) candidates.set(word, weight)
     }
     for (const word of local.keys()) {
       if (candidates.has(word)) continue

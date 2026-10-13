@@ -151,6 +151,15 @@ test("stale text, moved cursors, and teardown never insert a suggestion", async 
   fixture.ghost.dispose()
 })
 
+test("dismissal falls through after a cursor move before rendering", async () => {
+  const fixture = await setup()
+  fixture.editor.moveCursorLeft()
+  expect(fixture.ghost.dismiss()).toBe(false)
+  fixture.editor.gotoBufferEnd()
+  expect(fixture.ghost.visible()).toBe(true)
+  expect(fixture.ghost.dismiss()).toBe(true)
+})
+
 test("clips ghost text within the editor viewport", async () => {
   const fixture = await setup("please comp", 16)
   const lines = fixture.captureCharFrame().split("\n")

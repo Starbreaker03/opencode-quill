@@ -21,11 +21,12 @@ export default Plugin.define({
     const predictor = new WordPredictor(frequencies)
     const composers = new Map<string, { marker: BoxRenderable; normal: () => boolean }>()
     const seeded = new Set<string>()
-    const inFlight = new Set<string>()
+    const inFlight = new Map<string, { pending: boolean; announce: boolean }>()
     const [revision, setRevision] = createSignal(0)
     let ghost: ComposerGhost | undefined
     let disposed = false
     let warned = false
+    let resetVersion = 0
 
     const routeKey = () => {
       const route = context.ui.router.current()
@@ -57,29 +58,61 @@ export default Plugin.define({
     }
 
     const learn = async (sessionID: string, announce = true) => {
-      if (disposed || !settings.enabled || inFlight.has(sessionID)) return
-      inFlight.add(sessionID)
-      try {
-        await context.data.session.message.sync(sessionID)
-        if (disposed || !settings.enabled) return
-        const prompts = context.data.session.message.list(sessionID)
-          .filter((message) => message.type === "user")
-          .slice(-200)
-          .map((message) => ({ id: `${sessionID}:${message.id}`, text: message.text }))
-        const model = new PersonalModel(learning.snapshot)
-        if (!model.observe(prompts)) return
-        await setLearning((draft) => {
-          const latest = new PersonalModel(draft.snapshot)
-          if (latest.observe(prompts)) draft.snapshot = latest.snapshot()
-        })
-      } catch (error) {
-        if (announce && !disposed && !warned) {
-          warned = true
-          context.ui.toast.show({ title: "Quill", message: `History learning unavailable (${sessionID}: ${error instanceof Error ? error.message : String(error)}); vocabulary completion is still active.`, variant: "warning" })
+      if (disposed || !settings.enabled) return
+      const active = inFlight.get(sessionID)
+      if (active) {
+        if (announce) {
+          active.pending = true
+          active.announce = true
         }
+        return
+      }
+      const state = { pending: false, announce }
+      inFlight.set(sessionID, state)
+      try {
+        do {
+          state.pending = false
+          const version = resetVersion
+          const shouldAnnounce = state.announce
+          state.announce = false
+          try {
+            await context.data.session.message.sync(sessionID)
+            if (disposed || !settings.enabled) return
+            if (version !== resetVersion) continue
+            const prompts = context.data.session.message.list(sessionID)
+              .filter((message) => message.type === "user")
+              .slice(-200)
+              .map((message) => ({ id: `${sessionID}:${message.id}`, text: message.text }))
+            const model = new PersonalModel(learning.snapshot)
+            if (model.observe(prompts)) {
+              await setLearning((draft) => {
+                if (disposed || !settings.enabled || version !== resetVersion) return
+                const latest = new PersonalModel(draft.snapshot)
+                if (latest.observe(prompts)) draft.snapshot = latest.snapshot()
+              })
+            }
+          } catch (error) {
+            if (shouldAnnounce && !disposed && version === resetVersion && !warned) {
+              warned = true
+              context.ui.toast.show({ title: "Quill", message: `History learning unavailable (${sessionID}: ${error instanceof Error ? error.message : String(error)}); vocabulary completion is still active.`, variant: "warning" })
+            }
+          }
+        } while (state.pending && !disposed && settings.enabled)
       } finally {
         inFlight.delete(sessionID)
       }
+    }
+
+    const clearHistory = async () => {
+      resetVersion++
+      for (const state of inFlight.values()) {
+        state.pending = false
+        state.announce = false
+      }
+      predictor.setPersonal(emptySnapshot())
+      await setLearning((draft) => { draft.snapshot = emptySnapshot() })
+      ghost?.invalidate()
+      context.ui.toast.show({ title: "Quill", message: "Word autocomplete history cleared" })
     }
 
     const disposeEffects = createRoot((dispose) => {
@@ -128,10 +161,7 @@ export default Plugin.define({
           run: async (input) => {
             const command = parseQuillCommand(input)
             if (command.type === "clear") {
-              predictor.setPersonal(emptySnapshot())
-              await setLearning((draft) => { draft.snapshot = emptySnapshot() })
-              ghost?.invalidate()
-              context.ui.toast.show({ title: "Quill", message: "Word autocomplete history cleared" })
+              await clearHistory()
               return
             }
             if (command.type === "invalid") {
@@ -150,12 +180,7 @@ export default Plugin.define({
           description: "Reset learned vocabulary, n-grams, and prompt transitions",
           group: "Prompt",
           palette: true,
-          run: async () => {
-            predictor.setPersonal(emptySnapshot())
-            await setLearning((draft) => { draft.snapshot = emptySnapshot() })
-            ghost?.invalidate()
-            context.ui.toast.show({ title: "Quill", message: "Word autocomplete history cleared" })
-          },
+          run: clearHistory,
         },
       ],
     }))

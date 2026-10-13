@@ -55,6 +55,9 @@ A correction looks like this, with only ` → complete` dimmed:
 - **Completions append** the missing letters or next word.
 - **Corrections replace only the active word**, preserving its initial-capital
   or all-uppercase casing (`Cmplete` → `Complete`, `CMPLETE` → `COMPLETE`).
+  First-person contractions use a capital `I` in corrections and next-word
+  suggestions (`I'm`, `I'll`, `I've`, `I'd`). Lowercase contraction prefixes
+  are replaced on acceptance too (`i'v` → `I've`).
 - **Normal completions take precedence.** For example, `whate` completes to
   `whatever` rather than being corrected to `what`. Typo correction is a
   fallback when no confident prefix completion is available; recognized words
@@ -198,10 +201,18 @@ Quill learns from your own submitted prompts, never from assistant output:
   nothing is shown.
 - **Typo fallback:** when prefix completion is not confident enough, nearby
   words are ranked with an edit penalty and a stricter confidence threshold.
-  Corrections require at least three typed letters and support single-edit
-  errors, including adjacent letter swaps; not every typo produces a suggestion.
-  Unknown words in the preceding context can also be matched to nearby words
-  for prediction.
+  Correction confidence is the edit-penalized model score. Suggestions must
+  clear an absolute evidence floor and a separate candidate-dominance check.
+  Corrections require at least three typed letters. Short words are eligible
+  only for whole-word letter swaps that preserve the first letter; other edits
+  and mistyped longer prefixes require at least five letters, except for
+  apostrophe contractions, including missing apostrophes. Deletions repair only
+  doubled letters, not arbitrary extra characters or word endings.
+  Unknown tokens such as `json`, `yaml`, `bool`, `opts`,
+  and `enum` are left unchanged, and uncertain typos such as `fucn` can produce
+  no suggestion. Context repair uses the same edit guards and confidence checks
+  and requires repeated learned continuation evidence; not every typo produces
+  a suggestion.
 - **Bounded size:** the personal model is pruned to its most frequent entries
   when saved.
 

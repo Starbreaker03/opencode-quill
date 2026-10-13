@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test"
-import { completionQuery, leftContext, maskProse, proseSequences } from "../src/prose"
+import { completionQuery, leftContext, maskProse, proseSequences, proseWords } from "../src/prose"
 
 test("queries the word suffix and next word at the end of a draft", () => {
-  expect(completionQuery("can you refac", 13)).toEqual({ before: "can you ", prefix: "refac", next: false })
-  expect(completionQuery("can you ", 8)).toEqual({ before: "can you ", prefix: "", next: true })
+  const words = [{ text: "can", start: 0, end: 3 }, { text: "you", start: 4, end: 7 }]
+  expect(completionQuery("can you refac", 13)).toEqual({ before: "can you ", prefix: "refac", next: false, words })
+  expect(completionQuery("can you ", 8)).toEqual({ before: "can you ", prefix: "", next: true, words })
   expect(completionQuery("refac later", 5)).toBeUndefined()
   expect(completionQuery("", 0)).toBeUndefined()
   expect(completionQuery("    ", 4)).toBeUndefined()
@@ -33,4 +34,19 @@ test("supports accented, combining, and non-Latin words after other Unicode text
   for (const text of ["😊 café ré", "漢字 請修", "please re\u0301", "please don’t"]) {
     expect(completionQuery(text, text.length)?.prefix).toBe(text.split(" ").at(-1))
   }
+})
+
+test("queries retain bounded, reusable prose tokens for context and local vocabulary", () => {
+  const text = "earlier ".repeat(300) + "please run "
+  const query = completionQuery(text, text.length)!
+  expect(query.before.length).toBe(2000)
+  expect(query.words).toEqual(proseWords(query.before))
+  expect(leftContext(query.before, query.words)).toEqual(["please", "run"])
+})
+
+test("bounded query tokens retain masking established before the context window", () => {
+  const text = "please `" + "hidden ".repeat(400) + "` run "
+  const query = completionQuery(text, text.length)!
+  expect(query.words?.map((word) => word.text)).toEqual(["run"])
+  expect(leftContext(query.before, query.words)).toEqual(["run"])
 })
