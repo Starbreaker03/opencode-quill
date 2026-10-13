@@ -93,3 +93,62 @@ test("does not inflate next-word confidence when rare learned words are withheld
   predictor.setPersonal(model.snapshot())
   expect(complete(predictor, "please choose ")).toBeUndefined()
 })
+
+test("corrects current-word typos and mistyped prefixes while preserving casing", () => {
+  const predictor = new WordPredictor(frequencies)
+  expect(complete(predictor, "teh")).toMatchObject({ suffix: "the", word: "the", replace: 3 })
+  expect(complete(predictor, "Teh")).toMatchObject({ suffix: "The", word: "the", replace: 3 })
+  expect(complete(predictor, "TEH")).toMatchObject({ suffix: "THE", word: "the", replace: 3 })
+  expect(complete(predictor, "pleae")).toMatchObject({ suffix: "please", word: "please", replace: 5 })
+  expect(complete(predictor, "becua")).toMatchObject({ suffix: "because", word: "because", replace: 5 })
+})
+
+test("prefers confident prefix completions to typo replacements with the bundled vocabulary", () => {
+  const predictor = new WordPredictor(frequencies)
+  for (const [prefix, word] of [["whate", "whatever"], ["cann", "cannot"], ["wat", "watch"], ["mee", "meet"], ["nad", "nada"]]) {
+    expect(complete(predictor, prefix)).toMatchObject({ suffix: word.slice(prefix.length), word })
+    expect(complete(predictor, prefix)?.replace).toBeUndefined()
+  }
+})
+
+test("repairs left-context typos after a single learned occurrence", () => {
+  const model = new PersonalModel()
+  model.observe([{ id: "1", text: "please run tests" }, { id: "2", text: "please run tests" }])
+  const predictor = new WordPredictor(frequencies)
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "please rnu ")?.suffix).toBe("tests")
+  model.observe([{ id: "3", text: "please rnu tests" }])
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "please rnu ")?.suffix).toBe("tests")
+  expect(complete(predictor, "please rnu te")?.suffix).toBe("sts")
+})
+
+test("refreshes learned typo candidates when the personal model is cleared", () => {
+  const model = new PersonalModel()
+  model.observe([{ id: "1", text: "quillish" }, { id: "2", text: "quillish" }])
+  const predictor = new WordPredictor([])
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "quillsh")).toMatchObject({ word: "quillish", suffix: "quillish", replace: 7 })
+  predictor.setPersonal(emptySnapshot())
+  expect(complete(predictor, "quillsh")).toBeUndefined()
+})
+
+test("predicts next words and disambiguates current words across a typo in left context", () => {
+  const model = new PersonalModel()
+  model.observe([
+    { id: "1", text: "please run tests" }, { id: "2", text: "please run tests" },
+    { id: "3", text: "please write text" }, { id: "4", text: "please write text" },
+  ])
+  const predictor = new WordPredictor([
+    { word: "please", count: 100 },
+    { word: "run", count: 100 },
+    { word: "write", count: 100 },
+    { word: "tests", count: 1 },
+    { word: "text", count: 1 },
+  ])
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "please rnu")).toMatchObject({ suffix: "run", word: "run", replace: 3 })
+  expect(complete(predictor, "please rnu ")?.suffix).toBe("tests")
+  expect(complete(predictor, "please rnu te")?.suffix).toBe("sts")
+  expect(complete(predictor, "please wirte ")?.suffix).toBe("text")
+})

@@ -10,26 +10,21 @@ As you type, Quill predicts the remainder of your current prose word or the next
 word in sequence, shown as dimmed inline ghost text directly at your cursor.
 Press <kbd>Tab</kbd> or <kbd>→</kbd> to accept it, or <kbd>Esc</kbd> to dismiss.
 
-```text
-> can you refactor the test
-                           s   ← dimmed ghost text, Tab or → to accept
-```
-
 ## What it does
 
 - **Zero AI, completely local:** Runs entirely on-device without sending prompt
   text to any model, API, or external service.
 - **Context-aware ranking:** Blends a common-English vocabulary prior with an
   online n-gram model (bigrams and trigrams) learned from your prompt history.
-- **Completes words and predicts next words:** Completes the active word
-  prefix as you type (`refac` → `tor`) and predicts following words after a space
-  (`please run ` → `tests`) when prior evidence supports the sequence.
+- **Completes words, fixes typos, and predicts next words:** Completes the active
+  prose prefix, offers single-edit corrections, and predicts following words
+  when learned evidence supports the sequence.
 - **Ghost-text styling:** Matches [opencode-ghost](https://github.com/ozandogrultan/opencode-ghost)'s
   dimmed appearance (the theme's muted text color), rendered in the OpenTUI
   buffer without displacing the cursor.
-- **Safe acceptance:** Inserts editable text into the draft without submitting.
-  Supports native undo (<kbd>Ctrl+-</kbd> or <kbd>Cmd+Z</kbd>). Never overwrites
-  existing text and never touches the system clipboard.
+- **Safe acceptance:** Inserts or corrects the active word in the draft without
+  submitting. Supports native undo (<kbd>Ctrl+-</kbd> or <kbd>Cmd+Z</kbd>). Never
+  overwrites unrelated draft text and never touches the system clipboard.
 - **Coexists with Ghost:** [Ghost](https://github.com/ozandogrultan/opencode-ghost)
   suggests entire next prompts in an *empty* composer using a model; Quill
   predicts words in an *active* draft locally. When both are installed, each
@@ -39,6 +34,34 @@ Press <kbd>Tab</kbd> or <kbd>→</kbd> to accept it, or <kbd>Esc</kbd> to dismis
   composers holding attachments or pasted-text chips, and modal dialogs.
 - **End-of-draft only:** Suggestions appear when the cursor is at the end of the
   draft, either on a partial word or after a space.
+
+## What suggestions look like
+
+The suggestion appears dimmed at the end of the draft. It is not part of the
+editable text until you press <kbd>Tab</kbd> or <kbd>→</kbd>.
+
+| Kind | Your draft | Dimmed suggestion | Draft after acceptance |
+| --- | --- | --- | --- |
+| Word completion | `please comp` | `lete` | `please complete` |
+| Typo correction | `please cmplete` | ` → complete` | `please complete` |
+| Next word | `please run ` | `tests` | `please run tests` |
+
+A correction looks like this, with only ` → complete` dimmed:
+
+```text
+> please cmplete → complete
+```
+
+- **Completions append** the missing letters or next word.
+- **Corrections replace only the active word**, preserving its initial-capital
+  or all-uppercase casing (`Cmplete` → `Complete`, `CMPLETE` → `COMPLETE`).
+- **Normal completions take precedence.** For example, `whate` completes to
+  `whatever` rather than being corrected to `what`. Typo correction is a
+  fallback when no confident prefix completion is available; recognized words
+  are not corrected.
+- **Earlier words are never rewritten.** With learned evidence for
+  `please run tests`, typing `please rnu ` can suggest `tests`. Accepting it
+  produces `please rnu tests`, leaving `rnu` unchanged.
 
 ## Requirements
 
@@ -173,6 +196,12 @@ Quill learns from your own submitted prompts, never from assistant output:
   confidence threshold, which is stricter for next-word predictions than for
   prefix completions. If the typed prefix is already the most likely word,
   nothing is shown.
+- **Typo fallback:** when prefix completion is not confident enough, nearby
+  words are ranked with an edit penalty and a stricter confidence threshold.
+  Corrections require at least three typed letters and support single-edit
+  errors, including adjacent letter swaps; not every typo produces a suggestion.
+  Unknown words in the preceding context can also be matched to nearby words
+  for prediction.
 - **Bounded size:** the personal model is pruned to its most frequent entries
   when saved.
 

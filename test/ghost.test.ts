@@ -158,3 +158,14 @@ test("clips ghost text within the editor viewport", async () => {
   expect(lines[1]).not.toContain("please complete")
   expect(fixture.editor.plainText).toBe("please comp")
 })
+
+test("paints and accepts a typo replacement on the current word with single-step undo", async () => {
+  const fixture = await setup("please cmplete")
+  expect(fixture.captureCharFrame()).toContain("please cmplete → complete")
+  expect(fixture.editor.plainText).toBe("please cmplete")
+  expect(fixture.ghost.visible()).toBe(true)
+  expect(fixture.ghost.accept()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please complete")
+  expect(fixture.editor.undo()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please cmplete")
+})

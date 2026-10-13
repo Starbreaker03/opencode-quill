@@ -48,7 +48,7 @@ bun run lint:sh
 - Keep prediction local; do not add model calls, hidden sessions, or telemetry.
 - Register local TUI plugin directories in `cli.json`, not individual files.
 - Suggestions must not enter the text buffer until explicitly accepted.
-- Acceptance inserts text and never submits, overwrites a draft, or uses the clipboard.
+- Acceptance inserts or replaces the active word and never submits, overwrites unrelated draft text, or uses the clipboard.
 - Capture keys only with a visible suggestion in the focused normal composer.
 - Preserve host handlers, hints, selections, attachments, undo state, and other plugins.
 - Ghost owns empty-composer next-prompt suggestions; Quill targets non-empty prose drafts.

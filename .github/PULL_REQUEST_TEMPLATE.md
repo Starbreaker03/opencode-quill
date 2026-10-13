@@ -15,6 +15,6 @@ Closes #
 
 - [ ] `bun run test` passes.
 - [ ] `bun run typecheck` passes.
-- [ ] Read the "Caveats" section of the README; this change does not regress the
-      `session_prompt` slot or the accept-key behaviour.
+- [ ] Read the README and AGENTS.md; this change preserves composer gating,
+      accept-key behaviour, and native undo.
 - [ ] I updated the docs (README / CHANGELOG) where behaviour changed.

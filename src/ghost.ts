@@ -75,7 +75,7 @@ export class ComposerGhost {
     const query = completionQuery(text, offset)
     let prediction = query && this.predictor.complete(query)
     const last = this.shown
-    if (query && !query.next && last && text.startsWith(last.text)) {
+    if (query && !query.next && last && !last.prediction.replace && text.startsWith(last.text)) {
       const typed = text.slice(last.text.length)
       if (typed && last.prediction.suffix.startsWith(typed) && typed.length < last.prediction.suffix.length) {
         prediction = { ...last.prediction, suffix: last.prediction.suffix.slice(typed.length) }
@@ -99,9 +99,10 @@ export class ComposerGhost {
     }
     const x = this.editor.screenX + cursor.visualCol
     const y = this.editor.screenY + cursor.visualRow
+    const ghost = prediction.replace ? ` → ${prediction.suffix}` : prediction.suffix
     buffer.pushScissorRect(x, y, room, 1)
     try {
-      buffer.drawText(prediction.suffix, x, y, this.color(), this.editor.backgroundColor)
+      buffer.drawText(ghost, x, y, this.color(), this.editor.backgroundColor)
     } finally {
       buffer.popScissorRect()
     }
@@ -114,7 +115,12 @@ export class ComposerGhost {
       this.editor.plainText !== shown.text || this.offset() !== shown.offset) return false
     if (!completionQuery(shown.text, shown.offset)) return false
     this.shown = undefined
-    this.editor.insertText(shown.prediction.suffix)
+    if (shown.prediction.replace) {
+      this.editor.replaceText(shown.text.slice(0, shown.text.length - shown.prediction.replace) + shown.prediction.suffix)
+      this.editor.gotoBufferEnd()
+    } else {
+      this.editor.insertText(shown.prediction.suffix)
+    }
     this.editor.requestRender()
     return true
   }

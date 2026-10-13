@@ -36,7 +36,8 @@ CI runs the same checks plus ShellCheck on the scripts.
   enforced.
 - Keep suggestions separate from the text buffer until explicitly accepted.
 - Keep `Tab`/`→` capture scoped to a visible suggestion in the focused normal
-  composer. Acceptance inserts editable text and never submits it.
+  composer. Acceptance inserts a completion or replaces only the active word,
+  preserves native undo, and never submits the draft.
 - Keep prediction local and preserve Ghost's empty-composer suggestions.
 - New behaviour should come with a test in `test/` where practical.
 
