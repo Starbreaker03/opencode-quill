@@ -15,13 +15,13 @@ export function dimGhostColor(muted: RGBA): RGBA {
   return RGBA.fromValues(muted.r, muted.g, muted.b, muted.a * 0.55)
 }
 
-export function eligibleComposer(view: Composer): boolean {
+export function eligibleComposer(view: Composer, text?: string): boolean {
   const editor = view.editor
   return view.enabled && view.normal && view.mode === "base" && !view.selected &&
     editor === view.focused && editor.focused && editor.visible && !editor.isDestroyed &&
     !!editor.parent && !editor.parent.isDestroyed && !editor.hasSelection() &&
     !editor.traits.capture?.includes("navigate") &&
-    editor.extmarks.getAll().length === 0 && editor.plainText.trim().length > 0
+    (text ?? editor.plainText).trim().length > 0 && editor.extmarks.getAll().length === 0
 }
 
 export function findComposer(marker: Renderable | undefined, isEditor: (node: Renderable) => node is TextareaRenderable): TextareaRenderable | undefined {
@@ -66,11 +66,9 @@ export class ComposerGhost {
     if (!this.editor.isDestroyed) this.editor.requestRender()
   }
 
-  private prediction(): Prediction | undefined {
-    const text = this.editor.plainText
-    const offset = this.offset()
+  private prediction(text: string, offset: number): Prediction | undefined {
     if (this.dismissed !== undefined && this.dismissed !== text) this.dismissed = undefined
-    if (!eligibleComposer(this.view()) || this.dismissed === text) return
+    if (this.dismissed === text || !eligibleComposer(this.view(), text)) return
     if (this.memo?.text === text && this.memo.offset === offset) return this.memo.prediction
     const query = completionQuery(text, offset)
     let prediction = query && this.predictor.complete(query)
@@ -86,8 +84,14 @@ export class ComposerGhost {
   }
 
   private paint(buffer: OptimizedBuffer): void {
-    const prediction = this.prediction()
-    if (!prediction || this.editor.isDestroyed) {
+    if (this.editor.isDestroyed) {
+      this.shown = undefined
+      return
+    }
+    const text = this.editor.plainText
+    const offset = this.offset()
+    const prediction = this.prediction(text, offset)
+    if (!prediction) {
       this.shown = undefined
       return
     }
@@ -106,7 +110,7 @@ export class ComposerGhost {
     } finally {
       buffer.popScissorRect()
     }
-    this.shown = { text: this.editor.plainText, offset: this.offset(), prediction }
+    this.shown = { text, offset, prediction }
   }
 
   accept(): boolean {

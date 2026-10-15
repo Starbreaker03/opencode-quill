@@ -2,6 +2,7 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { InputRenderable, TextareaRenderable, type BoxRenderable } from "@opentui/core"
 import { createEffect, createRoot, createSignal, onCleanup, untrack } from "solid-js"
+import { unwrap } from "solid-js/store"
 import frequencies from "subtlex-word-frequencies"
 import { ComposerGhost, dimGhostColor, findComposer } from "./ghost"
 import { completionLayer } from "./keymap"
@@ -83,11 +84,14 @@ export default Plugin.define({
               .filter((message) => message.type === "user")
               .slice(-200)
               .map((message) => ({ id: `${sessionID}:${message.id}`, text: message.text }))
-            const model = new PersonalModel(learning.snapshot)
+            const snapshot = unwrap(learning.snapshot)
+            const seen = new Set(snapshot.seen)
+            if (!prompts.some((prompt) => !seen.has(prompt.id))) continue
+            const model = new PersonalModel(snapshot)
             if (model.observe(prompts)) {
               await setLearning((draft) => {
                 if (disposed || !settings.enabled || version !== resetVersion) return
-                const latest = new PersonalModel(draft.snapshot)
+                const latest = new PersonalModel(unwrap(draft.snapshot))
                 if (latest.observe(prompts)) draft.snapshot = latest.snapshot()
               })
             }
@@ -117,7 +121,10 @@ export default Plugin.define({
 
     const disposeEffects = createRoot((dispose) => {
       createEffect(() => {
-        predictor.setPersonal(learning.snapshot)
+        const snapshot = learning.snapshot
+        snapshot.seen.length
+        snapshot.seen.at(-1)
+        predictor.setPersonal(unwrap(snapshot))
         ghost?.invalidate()
       })
       createEffect(() => {
