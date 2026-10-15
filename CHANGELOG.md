@@ -4,6 +4,16 @@ All notable changes are documented in this file using
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-10-15
+
+### Added
+
+- **prediction:** Learn casing, hide fragments, and decay old counts
+
+### Changed
+
+- **learning:** Stop re-sorting sessions once the backfill is seeded
+
 ## [0.2.2] - 2026-10-15
 
 ### Changed
@@ -68,6 +78,7 @@ All notable changes are documented in this file using
 - `/quill` command and command palette action to toggle autocomplete.
 - Local installer script, full test suite, CI workflows, and release tooling.
 
+[0.3.0]: https://github.com/ozandogrultan/opencode-quill/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/ozandogrultan/opencode-quill/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ozandogrultan/opencode-quill/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ozandogrultan/opencode-quill/compare/v0.1.5...v0.2.0
