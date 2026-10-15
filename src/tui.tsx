@@ -139,6 +139,7 @@ export default Plugin.define({
         if (!settings.enabled) return
         const route = context.ui.router.current()
         if (route.type === "session") untrack(() => { void learn(route.sessionID, false) })
+        if (seeded.size >= 8) return
         for (const session of context.data.session.list().filter((session) => !session.parentID).sort((a, b) => b.time.updated - a.time.updated).slice(0, 8)) {
           if (seeded.has(session.id)) continue
           seeded.add(session.id)
