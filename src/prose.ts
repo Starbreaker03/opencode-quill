@@ -38,13 +38,13 @@ export function proseWords(text: string, masked = maskProse(text)): Word[] {
     .map((match) => ({ text: normalizeWord(match[0]), start: match.index, end: match.index + match[0].length }))
 }
 
-export function proseSequences(text: string): string[][] {
+export function proseSequences(text: string): Word[][] {
   const words = proseWords(text)
-  const sequences: string[][] = []
+  const sequences: Word[][] = []
   let previous = -1
   for (const word of words) {
     if (previous < 0 || !/^[ \t]+$/.test(text.slice(previous, word.start))) sequences.push([])
-    sequences.at(-1)!.push(word.text)
+    sequences.at(-1)!.push(word)
     previous = word.end
   }
   return sequences

@@ -6,6 +6,7 @@ export type Snapshot = {
   words: [string, number][]
   bigrams: [string, number][]
   trigrams: [string, number][]
+  forms?: [string, number][]
   seen: string[]
 }
 export type Prompt = { id: string; text: string }
@@ -17,9 +18,16 @@ const PRIOR_LIMIT = 20_000
 const WORD_LIMIT = 8000
 const CONTEXT_LIMIT = 30_000
 const SEEN_LIMIT = 8000
+const DECAY_TOTAL = 100_000
 
 export function emptySnapshot(): Snapshot {
-  return { version: 1, words: [], bigrams: [], trigrams: [], seen: [] }
+  return { version: 1, words: [], bigrams: [], trigrams: [], forms: [], seen: [] }
+}
+
+function sentenceStart(text: string, start: number): boolean {
+  let index = start - 1
+  while (index >= 0 && /[ \t"“‘(\[*>#-]/.test(text[index])) index--
+  return index < 0 || /[\n.!?:]/.test(text[index])
 }
 
 function restore(rows: [string, number][], limit: number): Map<string, number> {
@@ -38,12 +46,14 @@ export class PersonalModel {
   readonly words: Map<string, number>
   readonly bigrams: Map<string, number>
   readonly trigrams: Map<string, number>
+  readonly forms: Map<string, number>
   readonly seen: Set<string>
 
   constructor(snapshot: Snapshot = emptySnapshot()) {
     this.words = restore(snapshot.words, WORD_LIMIT)
     this.bigrams = restore(snapshot.bigrams, CONTEXT_LIMIT)
     this.trigrams = restore(snapshot.trigrams, CONTEXT_LIMIT)
+    this.forms = restore(snapshot.forms ?? [], WORD_LIMIT)
     this.seen = new Set(snapshot.seen.slice(-SEEN_LIMIT))
   }
 
@@ -55,10 +65,24 @@ export class PersonalModel {
       changed = true
       if (prompt.text.length > 4000 || prompt.text.split("\n").length > 12) continue
       for (const sequence of proseSequences(prompt.text)) {
-        for (let index = 0; index < sequence.length; index++) {
-          increment(this.words, sequence[index])
-          if (index > 0) increment(this.bigrams, `${sequence[index - 1]}\0${sequence[index]}`)
-          if (index > 1) increment(this.trigrams, `${sequence[index - 2]}\0${sequence[index - 1]}\0${sequence[index]}`)
+        const words = sequence.map((word) => word.text)
+        for (let index = 0; index < words.length; index++) {
+          const { start, end } = sequence[index]
+          increment(this.words, words[index])
+          const form = prompt.text.slice(start, end).normalize("NFC").replaceAll("’", "'")
+          if (form !== words[index] && !sentenceStart(prompt.text, start)) increment(this.forms, form)
+          if (index > 0) increment(this.bigrams, `${words[index - 1]}\0${words[index]}`)
+          if (index > 1) increment(this.trigrams, `${words[index - 2]}\0${words[index - 1]}\0${words[index]}`)
+        }
+      }
+    }
+    let total = 0
+    for (const count of this.words.values()) total += count
+    if (total > DECAY_TOTAL) {
+      for (const map of [this.words, this.bigrams, this.trigrams, this.forms]) {
+        for (const [key, count] of map) {
+          if (count > 1) map.set(key, Math.floor(count / 2))
+          else map.delete(key)
         }
       }
     }
@@ -71,6 +95,7 @@ export class PersonalModel {
       words: trim(this.words, WORD_LIMIT),
       bigrams: trim(this.bigrams, CONTEXT_LIMIT),
       trigrams: trim(this.trigrams, CONTEXT_LIMIT),
+      forms: trim(this.forms, WORD_LIMIT),
       seen: [...this.seen].slice(-SEEN_LIMIT),
     }
   }
@@ -166,6 +191,7 @@ export class WordPredictor {
   private bigramTotals = new Map<string, { total: number; types: number }>()
   private trigramTotals = new Map<string, { total: number; types: number }>()
   private vocabulary: string[] = []
+  private forms = new Map<string, string>()
 
   constructor(prior: readonly Frequency[]) {
     for (const { word, count } of prior) {
@@ -183,7 +209,26 @@ export class WordPredictor {
     this.personalTotal = [...this.personal.words.values()].reduce((sum, count) => sum + count, 0)
     this.bigramTotals = totals(this.personal.bigrams)
     this.trigramTotals = totals(this.personal.trigrams)
-    this.vocabulary = [...new Set([...this.prior.keys(), ...[...this.personal.words].filter(([, count]) => count >= 2).map(([word]) => word)])].sort()
+    const counts = this.personal.words
+    const learned = [...counts].filter(([, count]) => count >= 2).map(([word]) => word).sort()
+    const fragments = new Set<string>()
+    for (let index = 0; index < learned.length; index++) {
+      const word = learned[index]
+      if (this.prior.has(word)) continue
+      for (let next = index + 1; next < learned.length && learned[next].startsWith(word); next++) {
+        if (counts.get(learned[next])! >= counts.get(word)!) {
+          fragments.add(word)
+          break
+        }
+      }
+    }
+    this.vocabulary = [...new Set([...this.prior.keys(), ...learned.filter((word) => !fragments.has(word))])].sort()
+    const forms = new Map<string, [string, number]>()
+    for (const [form, count] of this.personal.forms) {
+      const word = normalizeWord(form)
+      if ((forms.get(word)?.[1] ?? 0) < count) forms.set(word, [form, count])
+    }
+    this.forms = new Map([...forms].filter(([word, [, count]]) => count * 2 > (counts.get(word) ?? 0)).map(([word, [form]]) => [word, form]))
   }
 
   private *nearbyWords(prefix: string, wholeWord = false): IterableIterator<string> {
@@ -278,13 +323,15 @@ export class WordPredictor {
       }
       const confidence = bestWeight < 1 ? typoConfidence(bestScore, sum) : query.next ? bestScore : bestScore / (sum || 1)
       if (!best || best === prefix || confidence === undefined || (bestWeight === 1 && confidence < (query.next ? 0.55 : 0.3))) return
-      if (bestWeight < 1 || (!query.next && best.startsWith("i'") && query.prefix[0] === "i")) {
-        return { suffix: applyCase(query.prefix, best), word: best, confidence, replace: query.prefix.length }
+      const form = this.forms.get(best) ?? best
+      const shouting = query.prefix.length > 1 && query.prefix === query.prefix.toUpperCase()
+      if (bestWeight < 1 || (!query.next && best.startsWith("i'") && query.prefix[0] === "i") ||
+        (!query.next && !shouting && form !== best && !form.startsWith(query.prefix))) {
+        return { suffix: applyCase(query.prefix, form), word: best, confidence, replace: query.prefix.length }
       }
-      let suffix = best.slice(prefix.length)
-      if (query.prefix.length > 1 && query.prefix === query.prefix.toUpperCase()) suffix = suffix.toUpperCase()
-      if (query.next) suffix = applyCase("", best)
-      return { suffix, word: best, confidence }
+      if (query.next) return { suffix: applyCase("", form), word: best, confidence }
+      const suffix = form.slice(prefix.length)
+      return { suffix: shouting ? suffix.toUpperCase() : suffix, word: best, confidence }
     }
     const completion = suggest()
     if (completion || query.next || prefix.length < 3 || candidates.has(prefix)) return completion

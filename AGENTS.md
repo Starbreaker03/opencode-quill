@@ -26,9 +26,11 @@ README.md is the user-facing contract — read it before changing behavior.
   `session.inbox.delivered`) and a startup/route backfill of recent sessions in
   `src/tui.tsx`. Messages are deduplicated by `<sessionID>:<messageID>`. Prose is
   masked against code, paths, URLs, shell commands, and large pastes.
-- **Model Growth:** Counts words, bigrams (`u\0w`), and trigrams (`u\0v\0w`). A word
-  joins the vocabulary once it has been seen more than once. The model is pruned
-  on persistence; limits live as constants in `src/predictor.ts`.
+- **Model Growth:** Counts words, bigrams (`u\0w`), trigrams (`u\0v\0w`), and
+  mid-sentence casing forms. A word joins the vocabulary once it has been seen
+  more than once, unless it is a prefix of a learned word used at least as often.
+  The model is pruned on persistence and halved past a total-count budget; limits
+  live as constants in `src/predictor.ts`.
 - **Storage Location:** Durable JSON state managed via OpenCode's `context.storage.store()`
   under `~/.local/state/opencode/<channel>/tui/plugin.quill.learning.json` and
   `plugin.quill.settings.json`. Raw prompt text is never written to disk or stored.

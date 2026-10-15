@@ -17,6 +17,42 @@ test("cold-start completion uses the licensed vocabulary without history", () =>
   expect(complete(predictor, "p")).toBeUndefined()
 })
 
+test("hides a learned fragment behind a longer learned word used at least as often", () => {
+  const model = new PersonalModel()
+  const predictor = new WordPredictor([])
+  const prompts = (text: string, count: number) => Array.from({ length: count }, (_, index) => ({ id: `${text}${index}`, text }))
+  model.observe([...prompts("fix addr", 3), ...prompts("it was addressed", 4)])
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "add")?.word).toBe("addressed")
+  model.observe(prompts("see addr again", 5))
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "add")?.word).toBe("addr")
+})
+
+test("completes learned words with their usual mid-sentence casing", () => {
+  const model = new PersonalModel()
+  const predictor = new WordPredictor([])
+  model.observe([
+    { id: "1", text: "ask Ozan today" }, { id: "2", text: "ping Ozan now" },
+    { id: "3", text: "Please ship it" }, { id: "4", text: "Please ship it" }, { id: "5", text: "please ship it" },
+  ])
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "ask Oz")).toMatchObject({ suffix: "an", word: "ozan" })
+  expect(complete(predictor, "ask oz")).toMatchObject({ suffix: "Ozan", replace: 2 })
+  expect(complete(predictor, "ask OZ")?.suffix).toBe("AN")
+  expect(complete(predictor, "pl")?.suffix).toBe("ease")
+})
+
+test("halves learned counts once the model exceeds its size budget", () => {
+  const model = new PersonalModel()
+  const text = Array.from({ length: 10 }, () => Array(130).fill("go").join(" ")).join("\n")
+  model.observe(Array.from({ length: 80 }, (_, index) => ({ id: String(index), text })))
+  expect(model.words.get("go")).toBe(52_000)
+  expect(model.bigrams.get("go\0go")).toBe(51_600)
+  model.observe([{ id: "rare", text: "solo word" }])
+  expect(model.words.get("solo")).toBe(1)
+})
+
 test("trigram context disambiguates completions and predicts following words", () => {
   const model = new PersonalModel()
   model.observe([

@@ -26,7 +26,7 @@ test("code and punctuation break context without shifting Unicode offsets", () =
   expect(leftContext("please run ")).toEqual(["please", "run"])
   expect(leftContext("please. run ")).toEqual(["run"])
   expect(leftContext("please `code` run ")).toEqual(["run"])
-  expect(proseSequences("please run tests. please `code` fix bugs"))
+  expect(proseSequences("please run tests. please `code` fix bugs").map((sequence) => sequence.map((word) => word.text)))
     .toEqual([["please", "run", "tests"], ["please"], ["fix", "bugs"]])
 })
 
