@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="160" viewBox="0 0 480 160" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Quill</title>
+  <desc id="desc">A teal quill beside custom lettering, with a cursor separating qu from the muted completion ill.</desc>
+  <g fill="#64C6CE">
+    <path d="M36 116C26 78 55 33 118 24C117 47 110 67 97 83L75 85L85 95C74 104 62 109 49 110L105 39L36 116Z"/>
+    <path d="M35 116L91 53L44 124C42 127 37 129 32 130L35 116Z"/>
+  </g>
+  <g stroke="#E5EDF0" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M195 76C190 65 181 62 171 62C155 62 146 74 146 91C146 108 155 120 171 120C184 120 195 110 195 94M195 65V141"/>
+    <path d="M222 65V98C222 113 230 120 243 120C257 120 267 110 267 96M267 65V117"/>
+  </g>
+  <path d="M290 52V130" stroke="#64C6CE" stroke-width="3"/>
+  <g stroke="#8B9AA3" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M315 76V118"/>
+    <path d="M347 40V105C347 114 351 119 360 119"/>
+    <path d="M386 40V105C386 114 390 119 399 119"/>
+  </g>
+  <circle cx="315" cy="53" r="6" fill="#8B9AA3"/>
+</svg>
