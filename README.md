@@ -10,7 +10,7 @@
   <a href="https://www.npmjs.com/package/opencode-quill"><img src="https://img.shields.io/npm/v/opencode-quill" alt="npm"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <a href="#contributing"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome"></a>
-  <a href="https://github.com/ozandogrultan/opencode-quill/stargazers"><img src="https://img.shields.io/github/stars/ozandogrultan/opencode-quill?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/ozandogrultan/opencode-quill/stargazers"><img src="https://img.shields.io/github/stars/ozandogrultan/opencode-quill.svg?style=social" alt="GitHub stars"></a>
 </p>
 
 Local word autocomplete and next-word prediction for the **OpenCode V2** prompt
