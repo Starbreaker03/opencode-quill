@@ -39,7 +39,7 @@
   },
   "packageManager": "bun@1.4.2",
   "engines": {
-    "opencode": ">=2.0.26"
+    "opencode": ">=2.1.0"
   },
   "scripts": {
     "prepare": "husky",
@@ -51,8 +51,8 @@
     "prepublishOnly": "bun run test && bun run typecheck"
   },
   "dependencies": {
-    "@opentui/core": "^0.5.17",
-    "@opentui/solid": "^0.5.17",
+    "@opentui/core": "^0.6.6",
+    "@opentui/solid": "^0.6.6",
     "subtlex-word-frequencies": "2.0.0"
   },
   "peerDependencies": {
