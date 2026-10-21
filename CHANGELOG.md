@@ -4,6 +4,12 @@ All notable changes are documented in this file using
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-10-21
+
+### Added
+
+- Add logical-line-end completion and suggestion cycling
+
 ## [0.3.4] - 2026-10-21
 
 ### Fixed
@@ -103,6 +109,7 @@ All notable changes are documented in this file using
 - `/quill` command and command palette action to toggle autocomplete.
 - Local installer script, full test suite, CI workflows, and release tooling.
 
+[0.4.0]: https://github.com/ozandogrultan/opencode-quill/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/ozandogrultan/opencode-quill/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/ozandogrultan/opencode-quill/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ozandogrultan/opencode-quill/compare/v0.3.1...v0.3.2
