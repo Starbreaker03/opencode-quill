@@ -1,7 +1,33 @@
 import { expect, test } from "bun:test"
 import frequencies from "subtlex-word-frequencies"
-import { emptySnapshot, PersonalModel, WordPredictor } from "../src/predictor"
+import { emptySnapshot, PersonalModel, trim, WordPredictor } from "../src/predictor"
 import { completionQuery } from "../src/prose"
+
+test("trim evicts the oldest entry among equal counts and keeps the row order", () => {
+  const map = new Map([["old", 1], ["mid", 1], ["hot", 3], ["new", 1]])
+  expect(trim(map, 3)).toEqual([["hot", 3], ["mid", 1], ["new", 1]])
+  expect(trim(map, 10)).toEqual([["hot", 3], ["old", 1], ["mid", 1], ["new", 1]])
+  expect(trim(new Map(trim(map, 3)), 3)).toEqual(trim(map, 3))
+})
+
+test("a repeated singleton moves to the newest position and survives trimming", () => {
+  const model = new PersonalModel()
+  model.observe([{ id: "1", text: "alpha beta gamma" }, { id: "2", text: "delta epsilon zeta" }, { id: "3", text: "alpha beta" }])
+  expect(model.bigrams.get("alpha\0beta")).toBe(2)
+  expect(trim(model.bigrams, 2).map(([key]) => key)).toEqual(["alpha\0beta", "epsilon\0zeta"])
+})
+
+test("saturated context maps keep learning new phrases", () => {
+  const model = new PersonalModel({
+    ...emptySnapshot(),
+    trigrams: Array.from({ length: 30_000 }, (_, index): [string, number] => [`a${index}\0b\0c`, 1]),
+  })
+  model.observe([{ id: "1", text: "please review carefully" }, { id: "2", text: "please review carefully" }])
+  const snapshot = model.snapshot()
+  expect(snapshot.trigrams).toHaveLength(30_000)
+  expect(snapshot.trigrams[0]).toEqual(["please\0review\0carefully", 2])
+  expect(snapshot.trigrams.some(([key]) => key === "a0\0b\0c")).toBe(false)
+})
 
 function complete(predictor: WordPredictor, text: string) {
   return predictor.complete(completionQuery(text, text.length)!)

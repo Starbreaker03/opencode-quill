@@ -8,6 +8,7 @@ export type Snapshot = {
   trigrams: [string, number][]
   forms?: [string, number][]
   seen: string[]
+  clearedAt?: number
 }
 export type Prompt = { id: string; text: string }
 export type Prediction = { suffix: string; word: string; confidence: number; replace?: number }
@@ -34,12 +35,16 @@ function restore(rows: [string, number][], limit: number): Map<string, number> {
   return new Map(rows.slice(0, limit).filter(([word, count]) => typeof word === "string" && word.length <= 100 && Number.isFinite(count) && count > 0))
 }
 
-function trim(map: Map<string, number>, limit: number): [string, number][] {
-  return [...map].sort((a, b) => b[1] - a[1]).slice(0, limit)
+const byCount = (a: [string, number], b: [string, number]) => b[1] - a[1]
+
+export function trim(map: Map<string, number>, limit: number): [string, number][] {
+  return [...map].reverse().sort(byCount).slice(0, limit).reverse().sort(byCount)
 }
 
 function increment(map: Map<string, number>, word: string): void {
-  map.set(word, (map.get(word) ?? 0) + 1)
+  const count = map.get(word) ?? 0
+  map.delete(word)
+  map.set(word, count + 1)
 }
 
 export class PersonalModel {
@@ -48,8 +53,10 @@ export class PersonalModel {
   readonly trigrams: Map<string, number>
   readonly forms: Map<string, number>
   readonly seen: Set<string>
+  readonly clearedAt: number | undefined
 
   constructor(snapshot: Snapshot = emptySnapshot()) {
+    this.clearedAt = Number.isFinite(snapshot.clearedAt) ? snapshot.clearedAt : undefined
     this.words = restore(snapshot.words, WORD_LIMIT)
     this.bigrams = restore(snapshot.bigrams, CONTEXT_LIMIT)
     this.trigrams = restore(snapshot.trigrams, CONTEXT_LIMIT)
@@ -97,6 +104,7 @@ export class PersonalModel {
       trigrams: trim(this.trigrams, CONTEXT_LIMIT),
       forms: trim(this.forms, WORD_LIMIT),
       seen: [...this.seen].slice(-SEEN_LIMIT),
+      ...(this.clearedAt === undefined ? {} : { clearedAt: this.clearedAt }),
     }
   }
 }

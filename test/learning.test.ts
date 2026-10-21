@@ -3,13 +3,14 @@ import { createStore, produce } from "solid-js/store"
 import { emptySnapshot, type Snapshot } from "../src/predictor"
 import plugin from "../src/tui"
 
-type Message = { id: string; type: "user"; text: string }
+type Message = { id: string; type: "user"; text: string; time?: { created: number } }
+type SessionInfo = { id: string; parentID?: string; time: { updated: number } }
 type Layer = { commands?: { id?: string; run?: (input?: string) => unknown }[] }
 const cleanups: (() => void | Promise<void>)[] = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
 
-async function setup(sync: () => Promise<void>, initialMessages: Message[] = [], initialWrite?: Promise<void>, route = "home") {
+async function setup(sync: () => Promise<void>, initialMessages: Message[] = [], initialWrite?: Promise<void>, route = "home", sessions: SessionInfo[] = [{ id: "session", time: { updated: 1 } }]) {
   let messages = initialMessages
   let writeGate = initialWrite
   const [learning, setLearning] = createStore({ snapshot: emptySnapshot() })
@@ -29,7 +30,7 @@ async function setup(sync: () => Promise<void>, initialMessages: Message[] = [],
     },
     data: {
       session: {
-        list: () => [{ id: "session", time: { updated: 1 } }],
+        list: () => sessions,
         message: { sync, list: () => messages },
       },
       on: (name: string, listener: (event: { data: { sessionID: string } }) => void) => {
@@ -98,8 +99,45 @@ test.each(["quill.clear", "quill.toggle"])("%s cancels stale syncs and queued pr
   await fixture.run(command, command === "quill.toggle" ? "clear" : undefined)
   pending.resolve()
   await settle()
-  expect(fixture.learning.snapshot).toEqual(emptySnapshot())
+  expect(fixture.learning.snapshot).toEqual({ ...emptySnapshot(), clearedAt: expect.any(Number) })
   expect(sync).toHaveBeenCalledTimes(1)
+})
+
+test("clear is not undone by re-learning messages sent before it", async () => {
+  const fixture = await setup(async () => {}, [{ id: "old", type: "user", text: "please run tests", time: { created: 1 } }])
+  await settle()
+  expect(fixture.learning.snapshot.seen).toEqual(["session:old"])
+  await fixture.run("quill.clear")
+  fixture.emit("session.inbox.delivered")
+  await settle()
+  expect(fixture.learning.snapshot.seen).toEqual([])
+  expect(fixture.learning.snapshot.words).toEqual([])
+  fixture.setMessages([
+    { id: "old", type: "user", text: "please run tests", time: { created: 1 } },
+    { id: "new", type: "user", text: "please run tests", time: { created: Date.now() + 1000 } },
+  ])
+  fixture.emit("session.inbox.delivered")
+  await settle()
+  expect(fixture.learning.snapshot.seen).toEqual(["session:new"])
+  expect(fixture.learning.snapshot.clearedAt).toBeNumber()
+})
+
+test("a snapshot saved before clearedAt existed keeps learning everything", async () => {
+  const fixture = await setup(async () => {}, [{ id: "old", type: "user", text: "please run tests", time: { created: 1 } }])
+  await settle()
+  expect(fixture.learning.snapshot.seen).toEqual(["session:old"])
+  expect(fixture.learning.snapshot.clearedAt).toBeUndefined()
+})
+
+test("child sessions are never learned from", async () => {
+  const sync = mock(async () => {})
+  const sessions = [{ id: "session", parentID: "parent", time: { updated: 1 } }]
+  const fixture = await setup(sync, [{ id: "task", type: "user", text: "please run tests" }], undefined, "session", sessions)
+  fixture.emit("session.execution.started")
+  fixture.emit("session.inbox.delivered")
+  await settle()
+  expect(sync).not.toHaveBeenCalled()
+  expect(fixture.learning.snapshot.seen).toEqual([])
 })
 
 test("a session event after clear still queues a fresh learning pass", async () => {
@@ -127,7 +165,7 @@ test("a storage mutation queued before clear cannot restore the old model", asyn
   await fixture.run("quill.clear")
   write.resolve()
   await settle()
-  expect(fixture.learning.snapshot).toEqual(emptySnapshot())
+  expect(fixture.learning.snapshot).toEqual({ ...emptySnapshot(), clearedAt: expect.any(Number) })
 })
 
 test("a queued live event retains warning behavior after a silent backfill fails", async () => {

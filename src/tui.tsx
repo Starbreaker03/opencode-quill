@@ -60,6 +60,7 @@ export default Plugin.define({
 
     const learn = async (sessionID: string, announce = true) => {
       if (disposed || !settings.enabled) return
+      if (context.data.session.list().find((session) => session.id === sessionID)?.parentID) return
       const active = inFlight.get(sessionID)
       if (active) {
         if (announce) {
@@ -80,19 +81,23 @@ export default Plugin.define({
             await context.data.session.message.sync(sessionID)
             if (disposed || !settings.enabled) return
             if (version !== resetVersion) continue
-            const prompts = context.data.session.message.list(sessionID)
+            const candidates = context.data.session.message.list(sessionID)
               .filter((message) => message.type === "user")
               .slice(-200)
-              .map((message) => ({ id: `${sessionID}:${message.id}`, text: message.text }))
+              .map((message) => ({ id: `${sessionID}:${message.id}`, text: message.text, created: message.time?.created }))
+            const promptsFor = (clearedAt: number | undefined) => candidates
+              .filter((prompt) => clearedAt === undefined || prompt.created === undefined || prompt.created >= clearedAt)
+              .map(({ id, text }) => ({ id, text }))
             const snapshot = unwrap(learning.snapshot)
             const seen = new Set(snapshot.seen)
+            const prompts = promptsFor(snapshot.clearedAt)
             if (!prompts.some((prompt) => !seen.has(prompt.id))) continue
             const model = new PersonalModel(snapshot)
             if (model.observe(prompts)) {
               await setLearning((draft) => {
                 if (disposed || !settings.enabled || version !== resetVersion) return
                 const latest = new PersonalModel(unwrap(draft.snapshot))
-                if (latest.observe(prompts)) draft.snapshot = latest.snapshot()
+                if (latest.observe(promptsFor(latest.clearedAt))) draft.snapshot = latest.snapshot()
               })
             }
           } catch (error) {
@@ -113,8 +118,9 @@ export default Plugin.define({
         state.pending = false
         state.announce = false
       }
-      predictor.setPersonal(emptySnapshot())
-      await setLearning((draft) => { draft.snapshot = emptySnapshot() })
+      const cleared = { ...emptySnapshot(), clearedAt: Date.now() }
+      predictor.setPersonal(cleared)
+      await setLearning((draft) => { draft.snapshot = cleared })
       ghost?.invalidate()
       context.ui.toast.show({ title: "Quill", message: "Word autocomplete history cleared" })
     }
