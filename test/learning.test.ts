@@ -10,10 +10,10 @@ const cleanups: (() => void | Promise<void>)[] = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
 
-async function setup(sync: () => Promise<void>, initialMessages: Message[] = [], initialWrite?: Promise<void>, route = "home", sessions: SessionInfo[] = [{ id: "session", time: { updated: 1 } }]) {
+async function setup(sync: () => Promise<void>, initialMessages: Message[] = [], initialWrite?: Promise<void>, route = "home", sessions: SessionInfo[] = [{ id: "session", time: { updated: 1 } }], initialSnapshot = emptySnapshot()) {
   let messages = initialMessages
   let writeGate = initialWrite
-  const [learning, setLearning] = createStore({ snapshot: emptySnapshot() })
+  const [learning, setLearning] = createStore({ snapshot: structuredClone(initialSnapshot) })
   const [settings, setSettings] = createStore({ enabled: true })
   const listeners = new Map<string, (event: { data: { sessionID: string } }) => void>()
   const layers: (() => Layer)[] = []
@@ -47,8 +47,15 @@ async function setup(sync: () => Promise<void>, initialMessages: Message[] = [],
     renderer: { setFrameCallback: () => {}, removeFrameCallback: () => {} },
   } as unknown as Parameters<typeof plugin.setup>[0]
   const dispose = await plugin.setup(context)
-  if (dispose) cleanups.push(dispose)
+  let disposed = false
+  const stop = async () => {
+    if (disposed) return
+    disposed = true
+    await dispose?.()
+  }
+  cleanups.push(stop)
   return {
+    stop,
     learning,
     toast,
     setMessages: (value: Message[]) => { messages = value },
@@ -123,10 +130,53 @@ test("clear is not undone by re-learning messages sent before it", async () => {
 })
 
 test("a snapshot saved before clearedAt existed keeps learning everything", async () => {
-  const fixture = await setup(async () => {}, [{ id: "old", type: "user", text: "please run tests", time: { created: 1 } }])
+  const fixture = await setup(async () => {}, [
+    { id: "old", type: "user", text: "please run tests", time: { created: 1 } },
+    { id: "undated", type: "user", text: "please run tests" },
+  ])
   await settle()
-  expect(fixture.learning.snapshot.seen).toEqual(["session:old"])
+  expect(fixture.learning.snapshot.seen).toEqual(["session:old", "session:undated"])
   expect(fixture.learning.snapshot.clearedAt).toBeUndefined()
+})
+
+test("clear survives restart and excludes old and undated history while learning new messages", async () => {
+  const messages: Message[] = [
+    { id: "old", type: "user", text: "please run tests", time: { created: 1 } },
+    { id: "undated", type: "user", text: "please run tests" },
+  ]
+  const fixture = await setup(async () => {}, messages)
+  await settle()
+  expect(fixture.learning.snapshot.seen).toEqual(["session:old", "session:undated"])
+  await fixture.run("quill.clear")
+  const persisted: Snapshot = JSON.parse(JSON.stringify(fixture.learning.snapshot))
+  await fixture.stop()
+  const restarted = await setup(async () => {}, messages, undefined, "home", undefined, persisted)
+  await settle()
+  expect(restarted.learning.snapshot).toEqual(persisted)
+  restarted.setMessages([...messages, { id: "new", type: "user", text: "please run tests", time: { created: persisted.clearedAt! + 1 } }])
+  restarted.emit("session.inbox.delivered")
+  await settle()
+  expect(restarted.learning.snapshot.seen).toEqual(["session:new"])
+  expect(restarted.learning.snapshot.words).not.toEqual([])
+  expect(restarted.learning.snapshot.clearedAt).toBe(persisted.clearedAt)
+})
+
+test.each(["sync", "storage"])("child metadata arriving during %s prevents learning", async (phase) => {
+  const pending = Promise.withResolvers<void>()
+  const sessions: SessionInfo[] = []
+  const fixture = await setup(
+    () => phase === "sync" ? pending.promise : Promise.resolve(),
+    [{ id: "task", type: "user", text: "please run tests" }],
+    phase === "storage" ? pending.promise : undefined,
+    "session",
+    sessions,
+  )
+  await settle()
+  sessions.push({ id: "session", parentID: "parent", time: { updated: 1 } })
+  pending.resolve()
+  await settle()
+  expect(fixture.learning.snapshot).toEqual(emptySnapshot())
+  expect(fixture.toast).not.toHaveBeenCalled()
 })
 
 test("child sessions are never learned from", async () => {
@@ -151,7 +201,7 @@ test("a session event after clear still queues a fresh learning pass", async () 
   first.resolve()
   await settle()
   expect(sync).toHaveBeenCalledTimes(2)
-  fixture.setMessages([{ id: "new", type: "user", text: "please run tests" }])
+  fixture.setMessages([{ id: "new", type: "user", text: "please run tests", time: { created: Date.now() + 1000 } }])
   second.resolve()
   await settle()
   expect(fixture.learning.snapshot.seen).toEqual(["session:new"])

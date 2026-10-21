@@ -80,13 +80,14 @@ export default Plugin.define({
           try {
             await context.data.session.message.sync(sessionID)
             if (disposed || !settings.enabled) return
+            if (context.data.session.list().find((session) => session.id === sessionID)?.parentID) return
             if (version !== resetVersion) continue
             const candidates = context.data.session.message.list(sessionID)
               .filter((message) => message.type === "user")
               .slice(-200)
               .map((message) => ({ id: `${sessionID}:${message.id}`, text: message.text, created: message.time?.created }))
             const promptsFor = (clearedAt: number | undefined) => candidates
-              .filter((prompt) => clearedAt === undefined || prompt.created === undefined || prompt.created >= clearedAt)
+              .filter((prompt) => clearedAt === undefined || (prompt.created !== undefined && prompt.created >= clearedAt))
               .map(({ id, text }) => ({ id, text }))
             const snapshot = unwrap(learning.snapshot)
             const seen = new Set(snapshot.seen)
@@ -96,6 +97,7 @@ export default Plugin.define({
             if (model.observe(prompts)) {
               await setLearning((draft) => {
                 if (disposed || !settings.enabled || version !== resetVersion) return
+                if (context.data.session.list().find((session) => session.id === sessionID)?.parentID) return
                 const latest = new PersonalModel(unwrap(draft.snapshot))
                 if (latest.observe(promptsFor(latest.clearedAt))) draft.snapshot = latest.snapshot()
               })
