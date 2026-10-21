@@ -107,13 +107,13 @@ export class ComposerGhost {
     }
     const cursor = this.editor.visualCursor
     const room = this.editor.width - cursor.visualCol
-    if (room <= 0 || cursor.visualRow < 0 || cursor.visualRow >= this.editor.height) {
+    const ghost = prediction.replace ? ` → ${prediction.suffix}` : prediction.suffix
+    if (room <= 0 || cursor.visualRow < 0 || cursor.visualRow >= this.editor.height || this.editor.editBuffer.measureText(ghost) > room) {
       this.shown = undefined
       return
     }
     const x = this.editor.screenX + cursor.visualCol
     const y = this.editor.screenY + cursor.visualRow
-    const ghost = prediction.replace ? ` → ${prediction.suffix}` : prediction.suffix
     buffer.pushScissorRect(x, y, room, 1)
     try {
       buffer.drawText(ghost, x, y, this.color(), this.editor.backgroundColor)

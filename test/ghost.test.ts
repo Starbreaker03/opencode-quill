@@ -211,12 +211,25 @@ test("dismissal falls through after a cursor move before rendering", async () =>
   expect(fixture.ghost.dismiss()).toBe(true)
 })
 
-test("clips ghost text within the editor viewport", async () => {
+test("hides and refuses a suggestion that does not fit the cursor row", async () => {
   const fixture = await setup("please comp", 16)
-  const lines = fixture.captureCharFrame().split("\n")
-  expect(lines[1]).toContain("please complet")
-  expect(lines[1]).not.toContain("please complete")
+  expect(fixture.captureCharFrame()).not.toContain("please compl")
+  expect(fixture.ghost.visible()).toBe(false)
+  expect(fixture.ghost.accept()).toBe(false)
   expect(fixture.editor.plainText).toBe("please comp")
+})
+
+test("shows a suggestion that exactly fills the cursor row", async () => {
+  const fixture = await setup("please comp", 17)
+  expect(fixture.captureCharFrame()).toContain("please complete")
+  expect(fixture.ghost.accept()).toBe(true)
+})
+
+test("hides a typo replacement that does not fit the cursor row", async () => {
+  const fixture = await setup("please cmplete", 20)
+  expect(fixture.ghost.visible()).toBe(false)
+  expect(fixture.ghost.accept()).toBe(false)
+  expect(fixture.editor.plainText).toBe("please cmplete")
 })
 
 test("paints and accepts a typo replacement on the current word with single-step undo", async () => {
