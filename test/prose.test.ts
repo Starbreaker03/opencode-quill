@@ -11,6 +11,17 @@ test("queries the word suffix and next word at the end of a draft", () => {
   expect(completionQuery("done. ", 6)).toBeUndefined()
 })
 
+test("protected ranges are masked out of words and break left context", () => {
+  const text = "fix Image [Image 1] comp"
+  const query = completionQuery(text, text.length, [[10, 19]])!
+  expect(query.prefix).toBe("comp")
+  expect(query.words?.map((word) => word.text)).toEqual(["fix", "image"])
+  expect(completionQuery("[Image 1] ", 10, [[0, 9]])).toBeUndefined()
+  expect(completionQuery("[Image 1]", 9, [[0, 9]])).toBeUndefined()
+  expect(completionQuery("see [Image", 10, [[4, 10]])).toBeUndefined()
+  expect(completionQuery("please comp", 11, [[3, 3]])?.prefix).toBe("comp")
+})
+
 test.each([
   "/quill", "!echo hello", "$ git status", "edit src/compo", "edit foo.ts", "edit .conf",
   "use foo_bar", "use camelCase", "ping @alice", "https://example.com/hel", "let variable",

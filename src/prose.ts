@@ -62,9 +62,19 @@ export function leftContext(before: string, words: readonly Word[] = proseWords(
   return result
 }
 
-export function completionQuery(text: string, characterOffset: number): CompletionQuery | undefined {
+export type TextRange = readonly [start: number, end: number]
+
+function blankRanges(text: string, ranges: readonly TextRange[]): string {
+  let result = text
+  for (const [start, end] of ranges) {
+    if (end > start) result = result.slice(0, start) + result.slice(start, end).replace(/[^\n]/g, "\0") + result.slice(end)
+  }
+  return result
+}
+
+export function completionQuery(text: string, characterOffset: number, protectedRanges: readonly TextRange[] = []): CompletionQuery | undefined {
   if (!text.trim() || characterOffset !== text.length || text.length > 16_000) return
-  const masked = maskProse(text)
+  const masked = maskProse(protectedRanges.length ? blankRanges(text, protectedRanges) : text)
   const prefix = WORD_END.exec(text)?.[0]
   let end = text.length
   if (prefix) {

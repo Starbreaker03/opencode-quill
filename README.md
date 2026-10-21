@@ -42,7 +42,9 @@ Press <kbd>Tab</kbd> or <kbd>→</kbd> to accept it, or <kbd>Esc</kbd> to dismis
   activates only in its respective domain without key conflicts.
 - **Prose-aware gating:** Automatically suppresses suggestions in code blocks,
   backticks, file paths, URLs, slash commands, shell executions, active selections,
-  composers holding attachments or pasted-text chips, and modal dialogs.
+  and modal dialogs. Attachment and pasted-text chips are treated as non-prose:
+  words are still suggested after them, but never inside them, and typo
+  replacements are not offered while a chip is present.
 - **End-of-draft only:** Suggestions appear when the cursor is at the end of the
   draft, either on a partial word or after a space.
 

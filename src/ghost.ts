@@ -1,5 +1,5 @@
 import { RGBA, type CliRenderer, type OptimizedBuffer, type Renderable, type TextareaRenderable } from "@opentui/core"
-import { completionQuery } from "./prose"
+import { completionQuery, type TextRange } from "./prose"
 import type { Prediction, WordPredictor } from "./predictor"
 
 export type Composer = {
@@ -21,7 +21,7 @@ export function eligibleComposer(view: Composer, text?: string): boolean {
     editor === view.focused && editor.focused && editor.visible && !editor.isDestroyed &&
     !!editor.parent && !editor.parent.isDestroyed && !editor.hasSelection() &&
     !editor.traits.capture?.includes("navigate") &&
-    (text ?? editor.plainText).trim().length > 0 && editor.extmarks.getAll().length === 0
+    (text ?? editor.plainText).trim().length > 0
 }
 
 export function findComposer(marker: Renderable | undefined, isEditor: (node: Renderable) => node is TextareaRenderable): TextareaRenderable | undefined {
@@ -41,7 +41,7 @@ export function findComposer(marker: Renderable | undefined, isEditor: (node: Re
 export class ComposerGhost {
   private shown: { text: string; offset: number; prediction: Prediction } | undefined
   private dismissed: string | undefined
-  private memo: { text: string; offset: number; prediction: Prediction | undefined } | undefined
+  private memo: { text: string; offset: number; marks: string; prediction: Prediction | undefined } | undefined
   private disposed = false
   private readonly draw: (buffer: OptimizedBuffer, delta: number) => void
 
@@ -60,6 +60,13 @@ export class ComposerGhost {
     return this.editor.editBuffer.getTextRange(0, this.editor.cursorOffset).length
   }
 
+  private protectedRanges(marks = this.editor.extmarks.getAll()): TextRange[] {
+    return marks.map((mark) => [
+      this.editor.editBuffer.getTextRange(0, mark.start).length,
+      this.editor.editBuffer.getTextRange(0, mark.end).length,
+    ])
+  }
+
   invalidate(): void {
     this.memo = undefined
     this.shown = undefined
@@ -69,9 +76,12 @@ export class ComposerGhost {
   private prediction(text: string, offset: number): Prediction | undefined {
     if (this.dismissed !== undefined && this.dismissed !== text) this.dismissed = undefined
     if (this.dismissed === text || !eligibleComposer(this.view(), text)) return
-    if (this.memo?.text === text && this.memo.offset === offset) return this.memo.prediction
-    const query = completionQuery(text, offset)
+    const marks = this.editor.extmarks.getAll()
+    const signature = marks.map((mark) => `${mark.start}:${mark.end}`).join()
+    if (this.memo?.text === text && this.memo.offset === offset && this.memo.marks === signature) return this.memo.prediction
+    const query = completionQuery(text, offset, this.protectedRanges(marks))
     let prediction = query && this.predictor.complete(query)
+    if (marks.length && prediction?.replace) prediction = undefined
     const last = this.shown
     if (query && !query.next && last && !last.prediction.replace && text.startsWith(last.text)) {
       const typed = text.slice(last.text.length)
@@ -79,7 +89,7 @@ export class ComposerGhost {
         prediction = { ...last.prediction, suffix: last.prediction.suffix.slice(typed.length) }
       }
     }
-    this.memo = { text, offset, prediction }
+    this.memo = { text, offset, marks: signature, prediction }
     return prediction
   }
 
@@ -117,7 +127,9 @@ export class ComposerGhost {
     const shown = this.shown
     if (this.disposed || !shown || !eligibleComposer(this.view()) ||
       this.editor.plainText !== shown.text || this.offset() !== shown.offset) return false
-    if (!completionQuery(shown.text, shown.offset)) return false
+    const marks = this.editor.extmarks.getAll()
+    if (!completionQuery(shown.text, shown.offset, this.protectedRanges(marks))) return false
+    if (marks.length && shown.prediction.replace) return false
     this.shown = undefined
     if (shown.prediction.replace) {
       this.editor.replaceText(shown.text.slice(0, shown.text.length - shown.prediction.replace) + shown.prediction.suffix)

@@ -101,9 +101,6 @@ test("does not override host autocomplete, extmarks, selections, or empty-compos
   expect(eligibleComposer(fixture.view)).toBe(false)
   expect(fixture.ghost.accept()).toBe(false)
   fixture.editor.traits = {}
-  const mark = fixture.editor.extmarks.create({ start: 0, end: 2 })
-  expect(fixture.ghost.accept()).toBe(false)
-  fixture.editor.extmarks.delete(mark)
   fixture.editor.setSelection(0, 2)
   expect(fixture.ghost.accept()).toBe(false)
   fixture.editor.clearSelection()
@@ -112,6 +109,60 @@ test("does not override host autocomplete, extmarks, selections, or empty-compos
   await fixture.renderOnce()
   expect(fixture.editor.placeholder).toBe("Ghost owns this hint")
   expect(fixture.ghost.visible()).toBe(false)
+})
+
+test("predicts after an attachment placeholder and keeps its extmark intact", async () => {
+  const fixture = await setup("[Image 1] please comp")
+  const mark = fixture.editor.extmarks.create({ start: 0, end: 9, virtual: true })
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(true)
+  expect(fixture.ghost.accept()).toBe(true)
+  expect(fixture.editor.plainText).toBe("[Image 1] please complete")
+  expect(fixture.editor.extmarks.getAll().map(({ id, start, end }) => ({ id, start, end }))).toEqual([{ id: mark, start: 0, end: 9 }])
+})
+
+test("predicts after an attachment placeholder on a later line", async () => {
+  const fixture = await setup("first line\n[Image 1] please comp")
+  fixture.editor.extmarks.create({ start: 11, end: 20, virtual: true })
+  await fixture.renderOnce()
+  expect(fixture.ghost.accept()).toBe(true)
+  expect(fixture.editor.plainText).toBe("first line\n[Image 1] please complete")
+})
+
+test("never completes inside or against an attachment placeholder", async () => {
+  const fixture = await setup("[Image 1]")
+  fixture.editor.extmarks.create({ start: 0, end: 9, virtual: true })
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+  expect(fixture.ghost.accept()).toBe(false)
+  fixture.editor.insertText(" ")
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+
+  const covered = await setup("please comp")
+  covered.editor.extmarks.create({ start: 7, end: 11 })
+  await covered.renderOnce()
+  expect(covered.ghost.visible()).toBe(false)
+  expect(covered.ghost.accept()).toBe(false)
+  expect(covered.editor.plainText).toBe("please comp")
+})
+
+test("never rewrites the draft with typo replacements while extmarks exist", async () => {
+  const fixture = await setup("[Image 1] please cmplete")
+  const mark = fixture.editor.extmarks.create({ start: 0, end: 9, virtual: true })
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+  expect(fixture.ghost.accept()).toBe(false)
+  expect(fixture.editor.plainText).toBe("[Image 1] please cmplete")
+  expect(fixture.editor.extmarks.getAll().map(({ id }) => id)).toEqual([mark])
+})
+
+test("a mark created after painting stops acceptance of a replacement", async () => {
+  const fixture = await setup("please cmplete")
+  expect(fixture.ghost.visible()).toBe(true)
+  fixture.editor.extmarks.create({ start: 0, end: 2 })
+  expect(fixture.ghost.accept()).toBe(false)
+  expect(fixture.editor.plainText).toBe("please cmplete")
 })
 
 test("normal host Tab capture does not suppress word suggestions", async () => {
