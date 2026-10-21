@@ -1,7 +1,7 @@
 import type { KeymapLayer } from "@opencode/plugin/tui/context"
 import type { Options } from "./options"
 
-type Suggestion = { visible(): boolean; accept(): boolean; dismiss(): boolean }
+type Suggestion = { visible(): boolean; accept(): boolean; dismiss(): boolean; canCycle(): boolean; cycle(direction: 1 | -1): boolean }
 
 export function completionLayer(options: Options, suggestion: () => Suggestion | undefined): KeymapLayer {
   return {
@@ -22,6 +22,13 @@ export function completionLayer(options: Options, suggestion: () => Suggestion |
         enabled: () => suggestion()?.visible() === true,
         run: () => suggestion()?.dismiss() ? undefined : false,
       },
+      ...([["next", 1, options.cycleNextKeys], ["previous", -1, options.cyclePreviousKeys]] as const).map(([name, direction, keys]) => ({
+        id: `quill.${name}`,
+        title: `${name === "next" ? "Next" : "Previous"} word suggestion`,
+        bind: keys.length ? keys.join(",") : false as const,
+        enabled: () => suggestion()?.canCycle() === true,
+        run: () => suggestion()?.cycle(direction) ? undefined : false,
+      })),
     ],
   }
 }

@@ -1,4 +1,4 @@
-export type Options = { enabled: boolean; acceptKeys: string[]; dismissKeys: string[] }
+export type Options = { enabled: boolean; completeAtLineEnd: boolean; acceptKeys: string[]; dismissKeys: string[]; cycleNextKeys: string[]; cyclePreviousKeys: string[] }
 
 function keys(value: unknown, fallback: string[], name: string): string[] {
   if (value === undefined) return fallback
@@ -10,10 +10,14 @@ function keys(value: unknown, fallback: string[], name: string): string[] {
 
 export function resolveOptions(input: Readonly<Record<string, unknown>>): Options {
   if (input.enabled !== undefined && typeof input.enabled !== "boolean") throw new Error("Quill enabled must be a boolean")
+  if (input.completeAtLineEnd !== undefined && typeof input.completeAtLineEnd !== "boolean") throw new Error("Quill completeAtLineEnd must be a boolean")
   return {
     enabled: input.enabled !== false,
+    completeAtLineEnd: input.completeAtLineEnd === true,
     acceptKeys: keys(input.acceptKeys, ["tab", "right"], "acceptKeys"),
     dismissKeys: keys(input.dismissKeys, ["escape"], "dismissKeys"),
+    cycleNextKeys: keys(input.cycleNextKeys, [], "cycleNextKeys"),
+    cyclePreviousKeys: keys(input.cyclePreviousKeys, [], "cyclePreviousKeys"),
   }
 }
 
@@ -31,4 +35,3 @@ export function parseQuillCommand(input: string | undefined): QuillCommand {
   if (raw === "off") return { type: "enable", value: false }
   return { type: "invalid" }
 }
-

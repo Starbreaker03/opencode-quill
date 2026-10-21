@@ -11,6 +11,34 @@ test("queries the word suffix and next word at the end of a draft", () => {
   expect(completionQuery("done. ", 6)).toBeUndefined()
 })
 
+test("logical line ends are opt-in, cursor-local, and never arbitrary mid-line positions", () => {
+  const text = "please comp\nlater prose"
+  expect(completionQuery(text, 11)).toBeUndefined()
+  expect(completionQuery(text, 11, [], true)).toMatchObject({ before: "please ", prefix: "comp", next: false })
+  for (const offset of [-1, 0, 10, 12, text.length + 1]) {
+    expect(completionQuery(text, offset, [], true)).toBeUndefined()
+  }
+  expect(completionQuery("please comp\n\nlater", 12, [], true)).toBeUndefined()
+  expect(completionQuery("please \nlater", 7, [], true)).toMatchObject({ prefix: "", next: true })
+  expect(completionQuery("please comp\r\nlater", 11, [], true)).toBeUndefined()
+  expect(completionQuery("please comp", 11, [], true)).toEqual(completionQuery("please comp", 11))
+})
+
+test("line-end queries mask the full draft before slicing around code and protected ranges", () => {
+  for (const text of ["```text\nplease comp\n```\nlater", "~~~\nplease comp\n~~~\nlater", "please `comp\nlater`"]) {
+    const offset = text.indexOf("comp") + 4
+    expect(completionQuery(text, offset, [], true)).toBeUndefined()
+  }
+  const text = "```\nhidden\n```\n😊 漢字 e\u0301 comp\n```\nhidden later\n```"
+  const offset = text.indexOf("comp") + 4
+  expect(completionQuery(text, offset, [], true)?.prefix).toBe("comp")
+  expect(completionQuery(text, offset, [[offset - 4, offset]], true)).toBeUndefined()
+  expect(completionQuery(text, offset, [[offset + 1, text.length]], true)?.prefix).toBe("comp")
+  const afterChip = "[Image 1] comp\nlater"
+  expect(completionQuery(afterChip, 14, [[0, 9]], true)?.prefix).toBe("comp")
+  expect(completionQuery("[Image 1] \nlater", 10, [[0, 9]], true)).toBeUndefined()
+})
+
 test("protected ranges are masked out of words and break left context", () => {
   const text = "fix Image [Image 1] comp"
   const query = completionQuery(text, text.length, [[10, 19]])!
@@ -60,4 +88,16 @@ test("bounded query tokens retain masking established before the context window"
   const query = completionQuery(text, text.length)!
   expect(query.words?.map((word) => word.text)).toEqual(["run"])
   expect(leftContext(query.before, query.words)).toEqual(["run"])
+})
+
+test("large synthetic drafts retain bounded context and reject drafts beyond the existing limit", () => {
+  const text = "word ".repeat(3199) + " comp"
+  expect(text.length).toBe(16_000)
+  const query = completionQuery(text, text.length)!
+  expect(query.prefix).toBe("comp")
+  expect(query.before).toHaveLength(2000)
+  expect(query.words!.length).toBeLessThanOrEqual(400)
+  expect(completionQuery(text + " ", text.length + 1)).toBeUndefined()
+  const code = "```\n" + "hidden ".repeat(1000)
+  expect(completionQuery(code, code.length)).toBeUndefined()
 })

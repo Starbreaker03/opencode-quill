@@ -192,6 +192,10 @@ function applyCase(source: string, word: string): string {
 }
 
 export class WordPredictor {
+  private revision = 0
+
+  get modelRevision(): number { return this.revision }
+
   readonly prior = new Map<string, number>()
   private priorTotal = 0
   private personal = new PersonalModel()
@@ -213,6 +217,7 @@ export class WordPredictor {
   }
 
   setPersonal(snapshot: Snapshot): void {
+    this.revision++
     this.personal = new PersonalModel(snapshot)
     this.personalTotal = [...this.personal.words.values()].reduce((sum, count) => sum + count, 0)
     this.bigramTotals = totals(this.personal.bigrams)
@@ -299,14 +304,20 @@ export class WordPredictor {
   }
 
   complete(query: CompletionQuery): Prediction | undefined {
+    return this.candidates(query, 1)[0]
+  }
+
+  candidates(query: CompletionQuery, limit = 5): Prediction[] {
+    const maximum = Number.isFinite(limit) ? Math.max(0, Math.min(5, Math.floor(limit))) : 5
+    if (!maximum) return []
     const prefix = normalizeWord(query.prefix)
     const words = query.words ?? proseWords(query.before)
     const local = new Map<string, number>()
     for (const word of words) increment(local, word.text)
     const context = this.resolveContext(leftContext(query.before, words), local)
     const evidence = this.bigramTotals.get(context.at(-1) ?? "")?.total ?? 0
-    if (query.next && evidence < 2) return
-    if (!query.next && [...prefix].length < 2 && evidence < 2) return
+    if (query.next && evidence < 2) return []
+    if (!query.next && [...prefix].length < 2 && evidence < 2) return []
     const candidates = new Map<string, number>()
     for (let index = lowerBound(this.vocabulary, prefix); index < this.vocabulary.length; index++) {
       const word = this.vocabulary[index]
@@ -314,35 +325,40 @@ export class WordPredictor {
       candidates.set(word, 1)
     }
     for (const word of local.keys()) if (word.startsWith(prefix)) candidates.set(word, 1)
-    const suggest = (): Prediction | undefined => {
-      let best = ""
-      let bestScore = 0
-      let bestWeight = 1
+    const suggest = (): Prediction[] => {
+      const ranked: { word: string; score: number; weight: number }[] = []
       let sum = 0
       for (const [word, weight] of candidates) {
         const base = this.score(word, context) + (query.next ? 0 : 0.003 * Math.min(local.get(word) ?? 0, 3))
         const score = base * weight
         sum += score
-        if (score > bestScore) {
-          best = word
-          bestScore = score
-          bestWeight = weight
+        ranked.push({ word, score, weight })
+        ranked.sort((a, b) => b.score - a.score)
+        if (ranked.length > maximum) ranked.pop()
+      }
+      const predictions: Prediction[] = []
+      for (const { word: best, score: bestScore, weight: bestWeight } of ranked) {
+        const confidence = bestWeight < 1 ? typoConfidence(bestScore, sum) : query.next ? bestScore : bestScore / (sum || 1)
+        if (!bestScore || best === prefix || confidence === undefined || (bestWeight === 1 && confidence < (query.next ? 0.55 : 0.3))) {
+          if (!predictions.length) return []
+          continue
+        }
+        const form = this.forms.get(best) ?? best
+        const shouting = query.prefix.length > 1 && query.prefix === query.prefix.toUpperCase()
+        if (bestWeight < 1 || (!query.next && best.startsWith("i'") && query.prefix[0] === "i") ||
+          (!query.next && !shouting && form !== best && !form.startsWith(query.prefix))) {
+          predictions.push({ suffix: applyCase(query.prefix, form), word: best, confidence, replace: query.prefix.length })
+        } else if (query.next) {
+          predictions.push({ suffix: applyCase("", form), word: best, confidence })
+        } else {
+          const suffix = form.slice(prefix.length)
+          predictions.push({ suffix: shouting ? suffix.toUpperCase() : suffix, word: best, confidence })
         }
       }
-      const confidence = bestWeight < 1 ? typoConfidence(bestScore, sum) : query.next ? bestScore : bestScore / (sum || 1)
-      if (!best || best === prefix || confidence === undefined || (bestWeight === 1 && confidence < (query.next ? 0.55 : 0.3))) return
-      const form = this.forms.get(best) ?? best
-      const shouting = query.prefix.length > 1 && query.prefix === query.prefix.toUpperCase()
-      if (bestWeight < 1 || (!query.next && best.startsWith("i'") && query.prefix[0] === "i") ||
-        (!query.next && !shouting && form !== best && !form.startsWith(query.prefix))) {
-        return { suffix: applyCase(query.prefix, form), word: best, confidence, replace: query.prefix.length }
-      }
-      if (query.next) return { suffix: applyCase("", form), word: best, confidence }
-      const suffix = form.slice(prefix.length)
-      return { suffix: shouting ? suffix.toUpperCase() : suffix, word: best, confidence }
+      return predictions
     }
     const completion = suggest()
-    if (completion || query.next || prefix.length < 3 || candidates.has(prefix)) return completion
+    if (completion.length || query.next || prefix.length < 3 || candidates.has(prefix)) return completion
     for (const word of this.nearbyWords(prefix)) {
       if (candidates.has(word)) continue
       const weight = typoWeight(prefix, word)

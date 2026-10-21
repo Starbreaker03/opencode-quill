@@ -72,9 +72,11 @@ function blankRanges(text: string, ranges: readonly TextRange[]): string {
   return result
 }
 
-export function completionQuery(text: string, characterOffset: number, protectedRanges: readonly TextRange[] = []): CompletionQuery | undefined {
-  if (!text.trim() || characterOffset !== text.length || text.length > 16_000) return
-  const masked = maskProse(protectedRanges.length ? blankRanges(text, protectedRanges) : text)
+export function completionQuery(draft: string, characterOffset: number, protectedRanges: readonly TextRange[] = [], completeAtLineEnd = false): CompletionQuery | undefined {
+  if (!draft.trim() || draft.length > 16_000 || characterOffset < 0 || characterOffset > draft.length ||
+    (characterOffset !== draft.length && (!completeAtLineEnd || draft[characterOffset] !== "\n"))) return
+  const masked = maskProse(protectedRanges.length ? blankRanges(draft, protectedRanges) : draft).slice(0, characterOffset)
+  const text = draft.slice(0, characterOffset)
   const prefix = WORD_END.exec(text)?.[0]
   let end = text.length
   if (prefix) {

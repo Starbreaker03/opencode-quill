@@ -33,6 +33,45 @@ function complete(predictor: WordPredictor, text: string) {
   return predictor.complete(completionQuery(text, text.length)!)
 }
 
+test("ranked candidates are bounded, confident, and keep the original best completion", () => {
+  const predictor = new WordPredictor([{ word: "complete", count: 6 }, { word: "compare", count: 4 }, { word: "company", count: 0.1 }])
+  const query = completionQuery("please comp", 11)!
+  const best = predictor.complete(query)!
+  const ranked = predictor.candidates(query)
+  expect(ranked[0]).toEqual(best)
+  expect(ranked.map(({ word }) => word)).toEqual(["complete", "compare"])
+  expect(predictor.candidates(query, 1)).toEqual([best!])
+  expect(predictor.candidates(query, 0)).toEqual([])
+  expect(ranked.every(({ confidence }) => confidence >= 0.3)).toBe(true)
+  const many = new WordPredictor(Array.from({ length: 20 }, (_, index) => ({ word: `word${String.fromCharCode(97 + index)}`, count: 1 })))
+  expect(many.candidates(completionQuery("wo", 2)!, 100)).toEqual([])
+  for (const text of ["the", "json", "fucn", "please "]) {
+    const query = completionQuery(text, text.length)!
+    const best = predictor.complete(query)
+    expect(predictor.candidates(query).slice(0, 1)).toEqual(best ? [best] : [])
+  }
+})
+
+test("repeated JSON save and restore preserves dedupe, casing and ranked predictions", () => {
+  let model = new PersonalModel()
+  const predictor = new WordPredictor([])
+  const prompts = [{ id: "session:a", text: "ask Ozan today" }, { id: "session:b", text: "ask Ozan today" }]
+  model.observe(prompts)
+  predictor.setPersonal(model.snapshot())
+  const query = completionQuery("ask oz", 6)!
+  const expected = predictor.complete(query)
+  const snapshot = model.snapshot()
+  for (let round = 0; round < 5; round++) {
+    model = new PersonalModel(JSON.parse(JSON.stringify(model.snapshot())))
+    expect(model.observe(prompts)).toBe(false)
+    expect(model.snapshot()).toEqual(snapshot)
+    predictor.setPersonal(model.snapshot())
+    expect(predictor.complete(query)).toEqual(expected)
+    expect(predictor.complete(completionQuery("ask Ozan ", 9)!)).toMatchObject({ word: "today" })
+  }
+  expect(expected).toMatchObject({ suffix: "Ozan", replace: 2 })
+})
+
 test("cold-start completion uses the licensed vocabulary without history", () => {
   const predictor = new WordPredictor(frequencies)
   expect(complete(predictor, "pleas")?.suffix).toBe("e")
@@ -140,6 +179,40 @@ test("handles normalized Unicode without replacing the typed prefix", () => {
   const predictor = new WordPredictor([{ word: "réviser", count: 10 }, { word: "請修正", count: 10 }])
   expect(complete(predictor, "re\u0301")?.suffix).toBe("viser")
   expect(complete(predictor, "請修")?.suffix).toBe("正")
+})
+
+test("bounded multilingual queries preserve script and normalization across JSON restores", () => {
+  const samples = [["réviser", "re\u0301"], ["請修正", "請修"], ["приветствие", "прив"], ["مرحبا", "مر"], ["κόσμος", "κό"]]
+  const model = new PersonalModel()
+  const prompts = samples.map(([word], index) => ({ id: String(index), text: `${word} ${word}` }))
+  model.observe(prompts)
+  const snapshot = JSON.parse(JSON.stringify(model.snapshot()))
+  const predictor = new WordPredictor([])
+  predictor.setPersonal(snapshot)
+  for (const [word, prefix] of samples) {
+    const prediction = complete(predictor, prefix)!
+    expect(prediction.replace).toBeUndefined()
+    expect((prefix + prediction.suffix).normalize("NFC")).toBe(word)
+    expect(predictor.candidates(completionQuery(prefix, prefix.length)!).length).toBeLessThanOrEqual(5)
+  }
+  expect(new PersonalModel(snapshot).observe(prompts)).toBe(false)
+})
+
+test("paste boundaries bound learning without changing dedupe or admitting oversized text", () => {
+  const model = new PersonalModel()
+  const atLimit = "alpha ".repeat(666) + "beta"
+  expect(atLimit.length).toBe(4000)
+  model.observe([
+    { id: "at-limit", text: atLimit },
+    { id: "over-limit", text: atLimit + " " },
+    { id: "twelve-lines", text: Array(12).fill("gamma").join("\n") },
+    { id: "thirteen-lines", text: Array(13).fill("delta").join("\n") },
+  ])
+  expect(model.words.get("alpha")).toBe(666)
+  expect(model.words.get("beta")).toBe(1)
+  expect(model.words.get("gamma")).toBe(12)
+  expect(model.words.has("delta")).toBe(false)
+  expect(model.snapshot().seen).toHaveLength(4)
 })
 
 test("a blank snapshot is durable JSON without raw prompt text", () => {

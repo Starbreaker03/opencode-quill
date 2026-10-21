@@ -55,7 +55,7 @@ export default Plugin.define({
           selected: context.renderer.hasSelection,
           enabled: !disposed && settings.enabled && currentEditor() === editor,
         }
-      }, () => dimGhostColor(context.theme.text.muted), context.renderer)
+      }, () => dimGhostColor(context.theme.text.muted), context.renderer, options.completeAtLineEnd)
     }
 
     const learn = async (sessionID: string, announce = true) => {

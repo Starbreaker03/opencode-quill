@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test"
+import { afterEach, expect, spyOn, test } from "bun:test"
 import { BoxRenderable, RGBA, TextareaRenderable } from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"
 import { ComposerGhost, dimGhostColor, eligibleComposer, type Composer } from "../src/ghost"
@@ -7,7 +7,7 @@ import { PersonalModel, WordPredictor } from "../src/predictor"
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() })
 
-async function setup(text = "please comp", width = 60) {
+async function setup(text = "please comp", width = 60, completeAtLineEnd = false) {
   const testing = await createTestRenderer({ width, height: 8 })
   cleanups.push(() => testing.renderer.destroy())
   const parent = new BoxRenderable(testing.renderer, { id: "composer", width, height: 4, paddingLeft: 2, paddingTop: 1 })
@@ -19,7 +19,7 @@ async function setup(text = "please comp", width = 60) {
   editor.focus()
   const view: Composer = { editor, normal: true, focused: editor, mode: "base", selected: false, enabled: true }
   const predictor = new WordPredictor([{ word: "complete", count: 10 }, { word: "réviser", count: 10 }])
-  const ghost = new ComposerGhost(editor, predictor, () => view, () => RGBA.fromHex("#888888"), testing.renderer)
+  const ghost = new ComposerGhost(editor, predictor, () => view, () => RGBA.fromHex("#888888"), testing.renderer, completeAtLineEnd)
   cleanups.push(() => ghost.dispose())
   await testing.renderOnce()
   return { ...testing, editor, ghost, view, predictor }
@@ -32,6 +32,285 @@ test("paints ghost text at the real cursor without changing the draft", async ()
   expect(fixture.ghost.visible()).toBe(true)
   expect(fixture.ghost.accept()).toBe(true)
   expect(fixture.editor.plainText).toBe("please complete")
+})
+
+test.each(["please comp", "😊 漢字 comp", "please re\u0301"])("opt-in logical-line-end insertion preserves trailing lines, callbacks and single-step undo: %s", async (line) => {
+  const text = `${line}\nkeep this line\n[Image 1]`
+  const fixture = await setup(text, 60, true)
+  fixture.editor.cursorOffset = fixture.editor.editBuffer.measureText(line)
+  const start = fixture.editor.editBuffer.measureText(`${line}\nkeep this line\n`)
+  const metadata = { attachment: "synthetic-image" }
+  const mark = fixture.editor.extmarks.create({ start, end: start + 9, virtual: true, metadata })
+  const original = fixture.editor.extmarks.getAll().map((mark) => ({ ...mark }))
+  let changed = 0
+  let submitted = 0
+  const onContentChange = () => { changed++ }
+  const onSubmit = () => { submitted++ }
+  fixture.editor.onContentChange = onContentChange
+  fixture.editor.onSubmit = onSubmit
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(true)
+  expect(fixture.editor.plainText).toBe(text)
+  expect(fixture.ghost.accept()).toBe(true)
+  const suffix = line.endsWith("comp") ? "lete" : "viser"
+  expect(fixture.editor.plainText).toBe(`${line}${suffix}\nkeep this line\n[Image 1]`)
+  expect(fixture.editor.editBuffer.getTextRange(0, fixture.editor.cursorOffset)).toBe(line + suffix)
+  await fixture.renderOnce()
+  expect(changed).toBeGreaterThan(0)
+  expect(submitted).toBe(0)
+  expect(fixture.editor.onContentChange).toBe(onContentChange)
+  expect(fixture.editor.onSubmit).toBe(onSubmit)
+  expect(fixture.editor.extmarks.getMetadataFor(mark)).toEqual(metadata)
+  expect(fixture.editor.extmarks.getAll()).toEqual(original.map((mark) => ({ ...mark, start: mark.start + suffix.length, end: mark.end + suffix.length })))
+  expect(fixture.editor.undo()).toBe(true)
+  expect(fixture.editor.plainText).toBe(text)
+  expect(fixture.editor.extmarks.getAll()).toEqual(original)
+  expect(fixture.editor.redo()).toBe(true)
+  expect(fixture.editor.plainText).toBe(`${line}${suffix}\nkeep this line\n[Image 1]`)
+  expect(fixture.editor.extmarks.getMetadataFor(mark)).toEqual(metadata)
+})
+
+test("line-end completion is disabled by default and never appears at a visual wrap or inside code", async () => {
+  const fixture = await setup("please comp\nlater")
+  fixture.editor.cursorOffset = 11
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+  const enabled = await setup("please comp later words", 17, true)
+  enabled.editor.cursorOffset = 11
+  await enabled.renderOnce()
+  expect(enabled.ghost.visible()).toBe(false)
+  for (const text of ["```\nplease comp\n```", "please `comp\nlater`", "please comp\n\nlater"]) {
+    enabled.editor.setText(text)
+    enabled.editor.cursorOffset = text.startsWith("please comp\n\n") ? 12 : enabled.editor.editBuffer.measureText(text.slice(0, text.indexOf("comp") + 4))
+    await enabled.renderOnce()
+    expect(enabled.ghost.visible()).toBe(false)
+    expect(enabled.ghost.accept()).toBe(false)
+  }
+})
+
+test("line-end suggestions never replace words, including casing corrections", async () => {
+  const fixture = await setup("please cmplete\nlater", 60, true)
+  fixture.editor.cursorOffset = 14
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+  expect(fixture.ghost.accept()).toBe(false)
+  const model = new PersonalModel()
+  model.observe([{ id: "a", text: "ask Ozan today" }, { id: "b", text: "ask Ozan today" }])
+  fixture.predictor.setPersonal(model.snapshot())
+  fixture.editor.setText("ask oz\nlater")
+  fixture.editor.cursorOffset = 6
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+  fixture.editor.setText("ask Oz\nlater")
+  fixture.editor.cursorOffset = 6
+  await fixture.renderOnce()
+  expect(fixture.ghost.accept()).toBe(true)
+  expect(fixture.editor.plainText).toBe("ask Ozan\nlater")
+})
+
+test("line-local cycling resets on cursor changes and incremental typing preserves the trailing draft", async () => {
+  const fixture = await setup("please comp\nplease comp", 60, true)
+  const model = new PersonalModel()
+  model.observe(Array.from({ length: 10 }, (_, index) => ({ id: String(index), text: index < 6 ? "please complete" : "please compare" })))
+  fixture.predictor.setPersonal(model.snapshot())
+  fixture.editor.cursorOffset = 11
+  await fixture.renderOnce()
+  expect(fixture.ghost.cycle(1)).toBe(true)
+  await fixture.renderOnce()
+  expect(fixture.captureCharFrame()).toContain("please compare")
+  fixture.editor.gotoBufferEnd()
+  expect(fixture.ghost.accept()).toBe(false)
+  await fixture.renderOnce()
+  expect(fixture.captureCharFrame()).toContain("please complete")
+  fixture.editor.cursorOffset = 11
+  await fixture.renderOnce()
+  fixture.editor.insertText("l")
+  expect(fixture.ghost.accept()).toBe(false)
+  await fixture.renderOnce()
+  expect(fixture.ghost.accept()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please complete\nplease comp")
+})
+
+test("line-end next-word acceptance leaves subsequent lines untouched", async () => {
+  const fixture = await setup("please run \nlater", 60, true)
+  const model = new PersonalModel()
+  model.observe([{ id: "a", text: "please run tests" }, { id: "b", text: "please run tests" }])
+  fixture.predictor.setPersonal(model.snapshot())
+  fixture.editor.cursorOffset = 11
+  await fixture.renderOnce()
+  expect(fixture.ghost.accept()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please run tests\nlater")
+  expect(fixture.editor.undo()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please run \nlater")
+})
+
+test("line-end dismissal does not suppress suggestions at a different logical line end", async () => {
+  const fixture = await setup("please comp\nplease comp", 60, true)
+  fixture.editor.cursorOffset = 11
+  await fixture.renderOnce()
+  expect(fixture.ghost.dismiss()).toBe(true)
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+  fixture.editor.gotoBufferEnd()
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(true)
+})
+
+test.each([13, 14, 16])("line-end ghost never overwrites the next logical line when width is %s", async (width) => {
+  const fixture = await setup("please comp\nright", width, true)
+  fixture.editor.cursorOffset = 11
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+  expect(fixture.ghost.accept()).toBe(false)
+  expect(fixture.captureCharFrame()).toContain("right")
+})
+
+test("cycles confident alternatives without editing, wraps, and accepts with native undo", async () => {
+  const fixture = await setup()
+  const model = new PersonalModel()
+  model.observe(Array.from({ length: 10 }, (_, index) => ({ id: String(index), text: index < 6 ? "please complete" : "please compare" })))
+  fixture.predictor.setPersonal(model.snapshot())
+  await fixture.renderOnce()
+  expect(fixture.ghost.cycle(1)).toBe(true)
+  expect(fixture.editor.plainText).toBe("please comp")
+  await fixture.renderOnce()
+  expect(fixture.captureCharFrame()).toContain("please compare")
+  expect(fixture.ghost.cycle(1)).toBe(true)
+  await fixture.renderOnce()
+  expect(fixture.captureCharFrame()).toContain("please complete")
+  expect(fixture.ghost.cycle(-1)).toBe(true)
+  await fixture.renderOnce()
+  expect(fixture.ghost.accept()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please compare")
+  expect(fixture.editor.undo()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please comp")
+  expect(fixture.editor.redo()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please compare")
+})
+
+test("cycling falls through for a single candidate and invalidates on model or extmark changes", async () => {
+  const fixture = await setup()
+  expect(fixture.ghost.cycle(1)).toBe(false)
+  fixture.predictor.setPersonal(new PersonalModel().snapshot())
+  expect(fixture.ghost.visible()).toBe(false)
+  expect(fixture.ghost.accept()).toBe(false)
+  await fixture.renderOnce()
+  fixture.editor.extmarks.create({ start: 0, end: 2 })
+  expect(fixture.ghost.visible()).toBe(false)
+  expect(fixture.ghost.cycle(1)).toBe(false)
+})
+
+test.each(["text", "cursor", "extmark", "model"])("cycling resets to the best candidate after %s changes", async (change) => {
+  const fixture = await setup()
+  const model = new PersonalModel()
+  model.observe(Array.from({ length: 10 }, (_, index) => ({ id: String(index), text: index < 6 ? "please complete" : "please compare" })))
+  fixture.predictor.setPersonal(model.snapshot())
+  await fixture.renderOnce()
+  expect(fixture.ghost.cycle(1)).toBe(true)
+  await fixture.renderOnce()
+  expect(fixture.captureCharFrame()).toContain("please compare")
+  if (change === "text") fixture.editor.insertText("l")
+  if (change === "cursor") fixture.editor.moveCursorLeft()
+  if (change === "extmark") fixture.editor.extmarks.create({ start: 0, end: 2 })
+  if (change === "model") fixture.predictor.setPersonal(model.snapshot())
+  expect(fixture.ghost.cycle(1)).toBe(false)
+  expect(fixture.ghost.accept()).toBe(false)
+  await fixture.renderOnce()
+  if (change === "cursor") {
+    fixture.editor.gotoBufferEnd()
+    await fixture.renderOnce()
+  }
+  expect(fixture.captureCharFrame()).toContain("please complete")
+})
+
+test("unchanged redraws reuse ranked candidates and a changed model refreshes them", async () => {
+  const fixture = await setup()
+  const candidates = spyOn(fixture.predictor, "candidates")
+  fixture.ghost.invalidate()
+  for (let frame = 0; frame < 20; frame++) await fixture.renderOnce()
+  expect(candidates).toHaveBeenCalledTimes(1)
+  fixture.predictor.setPersonal(new PersonalModel().snapshot())
+  await fixture.renderOnce()
+  expect(candidates).toHaveBeenCalledTimes(2)
+})
+
+test("cycling does not hide the current ghost behind an alternative that cannot fit", async () => {
+  const fixture = await setup("please comp", 17)
+  const model = new PersonalModel()
+  model.observe(Array.from({ length: 10 }, (_, index) => ({ id: String(index), text: index < 6 ? "please complete" : "please complicated" })))
+  fixture.predictor.setPersonal(model.snapshot())
+  await fixture.renderOnce()
+  expect(fixture.ghost.cycle(1)).toBe(false)
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(true)
+  expect(fixture.ghost.accept()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please complete")
+})
+
+test("screen clipping and resize before repaint invalidate visible acceptance", async () => {
+  const fixture = await setup()
+  fixture.resize(12, 8)
+  expect(fixture.ghost.visible()).toBe(false)
+  expect(fixture.ghost.accept()).toBe(false)
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+  expect(fixture.ghost.dismiss()).toBe(false)
+  expect(fixture.editor.plainText).toBe("please comp")
+})
+
+test.each(["😊", "漢字", "e\u0301"])("Unicode attachment offsets and metadata survive insertion: %s", async (prefix) => {
+  const fixture = await setup(`${prefix} [Image 1] please comp`)
+  const start = fixture.editor.editBuffer.measureText(`${prefix} `)
+  const metadata = { attachment: "synthetic-image", source: { type: "image" } }
+  const mark = fixture.editor.extmarks.create({ start, end: start + 9, virtual: true, metadata, data: { label: "Image 1" } })
+  const marks = fixture.editor.extmarks.getAll()
+  await fixture.renderOnce()
+  expect(fixture.ghost.accept()).toBe(true)
+  expect(fixture.editor.plainText).toBe(`${prefix} [Image 1] please complete`)
+  expect(fixture.editor.extmarks.getAll()).toEqual(marks)
+  expect(fixture.editor.extmarks.getMetadataFor(mark)).toEqual(metadata)
+  expect(fixture.editor.undo()).toBe(true)
+  expect(fixture.editor.plainText).toBe(`${prefix} [Image 1] please comp`)
+  expect(fixture.editor.extmarks.getAll()).toEqual(marks)
+  expect(fixture.editor.redo()).toBe(true)
+  expect(fixture.editor.extmarks.getMetadataFor(mark)).toEqual(metadata)
+  fixture.editor.cursorOffset = start + 2
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+})
+
+test("wrapped, scrolled and resized cursor rows paint only when the whole ghost fits", async () => {
+  const fixture = await setup("first line\nsecond line\nthird line\nplease comp", 30)
+  expect(fixture.editor.visualCursor.visualRow).toBeLessThan(fixture.editor.height)
+  expect(fixture.captureCharFrame()).toContain("please complete")
+  fixture.resize(16, 8)
+  fixture.editor.parent!.width = 16
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(false)
+  fixture.resize(30, 8)
+  fixture.editor.parent!.width = 30
+  await fixture.renderOnce()
+  expect(fixture.ghost.visible()).toBe(true)
+  fixture.editor.setText("please please please please comp")
+  fixture.editor.gotoBufferEnd()
+  await fixture.renderOnce()
+  expect(fixture.editor.visualCursor.visualRow).toBeGreaterThan(0)
+  expect(fixture.captureCharFrame()).toContain("complete")
+  expect(fixture.ghost.accept()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please please please please complete")
+})
+
+test("public selected-word insertion cannot provide single-step correction undo", async () => {
+  const fixture = await setup("please cmplete")
+  fixture.editor.setSelection(7, 14)
+  expect(fixture.editor.getSelectedText()).toBe("cmplete")
+  fixture.editor.insertText("complete")
+  await fixture.renderOnce()
+  expect(fixture.editor.plainText).toBe("please complete")
+  expect(fixture.editor.undo()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please ")
+  expect(fixture.editor.undo()).toBe(true)
+  expect(fixture.editor.plainText).toBe("please cmplete")
 })
 
 test("uses Ghost's exact muted RGB and 0.55 alpha multiplier", () => {

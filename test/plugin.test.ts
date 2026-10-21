@@ -8,6 +8,11 @@ test("exports a V2 plugin definition", () => {
   expect(typeof plugin.setup).toBe("function")
 })
 
+test("the plugin validates logical-line-end options before registering resources", () => {
+  const context = { options: { completeAtLineEnd: "yes" } } as unknown as Parameters<typeof plugin.setup>[0]
+  expect(() => plugin.setup(context)).toThrow("Quill completeAtLineEnd must be a boolean")
+})
+
 test("package metadata points to the shipped plugin", () => {
   const root = resolve(import.meta.dir, "..")
   const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"))

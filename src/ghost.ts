@@ -39,9 +39,9 @@ export function findComposer(marker: Renderable | undefined, isEditor: (node: Re
 }
 
 export class ComposerGhost {
-  private shown: { text: string; offset: number; prediction: Prediction } | undefined
-  private dismissed: string | undefined
-  private memo: { text: string; offset: number; marks: string; prediction: Prediction | undefined } | undefined
+  private shown: { text: string; offset: number; prediction: Prediction; marks: string; revision: number } | undefined
+  private dismissed: { text: string; offset: number } | undefined
+  private memo: { text: string; offset: number; marks: string; revision: number; predictions: Prediction[]; index: number } | undefined
   private disposed = false
   private readonly draw: (buffer: OptimizedBuffer, delta: number) => void
 
@@ -51,6 +51,7 @@ export class ComposerGhost {
     private readonly view: () => Composer,
     private readonly color: () => RGBA,
     private readonly renderer: CliRenderer,
+    private readonly completeAtLineEnd = false,
   ) {
     this.draw = (buffer) => { if (!this.disposed) this.paint(buffer) }
     renderer.addPostProcessFn(this.draw)
@@ -67,6 +68,23 @@ export class ComposerGhost {
     ])
   }
 
+  private marksKey(): string {
+    return this.editor.extmarks.getAll().map((mark) => `${mark.id}:${mark.start}:${mark.end}:${mark.virtual}:${mark.typeId}:${mark.styleId}:${mark.priority}`).join()
+  }
+
+  private room(): number {
+    const cursor = this.editor.visualCursor
+    const x = this.editor.screenX + cursor.visualCol
+    const y = this.editor.screenY + cursor.visualRow
+    if (x < 0 || y < 0 || y >= this.renderer.height || cursor.visualRow < 0 || cursor.visualRow >= this.editor.height) return 0
+    return Math.min(this.editor.width - cursor.visualCol, this.renderer.width - x)
+  }
+
+  private fits(prediction: Prediction): boolean {
+    const room = this.room()
+    return room > 0 && this.editor.editBuffer.measureText(prediction.replace ? ` → ${prediction.suffix}` : prediction.suffix) <= room
+  }
+
   invalidate(): void {
     this.memo = undefined
     this.shown = undefined
@@ -74,23 +92,25 @@ export class ComposerGhost {
   }
 
   private prediction(text: string, offset: number): Prediction | undefined {
-    if (this.dismissed !== undefined && this.dismissed !== text) this.dismissed = undefined
-    if (this.dismissed === text || !eligibleComposer(this.view(), text)) return
+    if (this.dismissed && (this.dismissed.text !== text || this.dismissed.offset !== offset)) this.dismissed = undefined
+    if (this.dismissed || !eligibleComposer(this.view(), text)) return
     const marks = this.editor.extmarks.getAll()
-    const signature = marks.map((mark) => `${mark.start}:${mark.end}`).join()
-    if (this.memo?.text === text && this.memo.offset === offset && this.memo.marks === signature) return this.memo.prediction
-    const query = completionQuery(text, offset, this.protectedRanges(marks))
-    let prediction = query && this.predictor.complete(query)
-    if (marks.length && prediction?.replace) prediction = undefined
+    const signature = this.marksKey()
+    const revision = this.predictor.modelRevision
+    if (this.memo?.text === text && this.memo.offset === offset && this.memo.marks === signature && this.memo.revision === revision) return this.memo.predictions[this.memo.index]
+    const query = completionQuery(text, offset, this.protectedRanges(marks), this.completeAtLineEnd)
+    const predictions = query ? this.predictor.candidates(query) : []
+    if ((marks.length || offset !== text.length) && predictions[0]?.replace) predictions.length = 0
+    else if (marks.length || offset !== text.length) predictions.splice(0, predictions.length, ...predictions.filter((prediction) => !prediction.replace))
     const last = this.shown
-    if (query && !query.next && last && !last.prediction.replace && text.startsWith(last.text)) {
+    if (query && !query.next && offset === text.length && last && last.offset === last.text.length && this.memo?.index === 0 && last.revision === revision && last.marks === signature && !last.prediction.replace && text.startsWith(last.text)) {
       const typed = text.slice(last.text.length)
       if (typed && last.prediction.suffix.startsWith(typed) && typed.length < last.prediction.suffix.length) {
-        prediction = { ...last.prediction, suffix: last.prediction.suffix.slice(typed.length) }
+        predictions[0] = { ...last.prediction, suffix: last.prediction.suffix.slice(typed.length) }
       }
     }
-    this.memo = { text, offset, marks: signature, prediction }
-    return prediction
+    this.memo = { text, offset, marks: signature, revision, predictions, index: 0 }
+    return predictions[0]
   }
 
   private paint(buffer: OptimizedBuffer): void {
@@ -106,9 +126,9 @@ export class ComposerGhost {
       return
     }
     const cursor = this.editor.visualCursor
-    const room = this.editor.width - cursor.visualCol
+    const room = this.room()
     const ghost = prediction.replace ? ` → ${prediction.suffix}` : prediction.suffix
-    if (room <= 0 || cursor.visualRow < 0 || cursor.visualRow >= this.editor.height || this.editor.editBuffer.measureText(ghost) > room) {
+    if (!this.fits(prediction)) {
       this.shown = undefined
       return
     }
@@ -120,16 +140,15 @@ export class ComposerGhost {
     } finally {
       buffer.popScissorRect()
     }
-    this.shown = { text, offset, prediction }
+    this.shown = { text, offset, prediction, marks: this.memo!.marks, revision: this.memo!.revision }
   }
 
   accept(): boolean {
     const shown = this.shown
-    if (this.disposed || !shown || !eligibleComposer(this.view()) ||
-      this.editor.plainText !== shown.text || this.offset() !== shown.offset) return false
+    if (!shown || !this.visible()) return false
     const marks = this.editor.extmarks.getAll()
-    if (!completionQuery(shown.text, shown.offset, this.protectedRanges(marks))) return false
-    if (marks.length && shown.prediction.replace) return false
+    if (!completionQuery(shown.text, shown.offset, this.protectedRanges(marks), this.completeAtLineEnd)) return false
+    if ((marks.length || shown.offset !== shown.text.length) && shown.prediction.replace) return false
     this.shown = undefined
     if (shown.prediction.replace) {
       this.editor.replaceText(shown.text.slice(0, shown.text.length - shown.prediction.replace) + shown.prediction.suffix)
@@ -142,9 +161,8 @@ export class ComposerGhost {
   }
 
   dismiss(): boolean {
-    if (this.disposed || !this.shown || !eligibleComposer(this.view()) ||
-      this.editor.plainText !== this.shown.text || this.offset() !== this.shown.offset) return false
-    this.dismissed = this.editor.plainText
+    if (!this.visible()) return false
+    this.dismissed = { text: this.shown!.text, offset: this.shown!.offset }
     this.shown = undefined
     this.editor.requestRender()
     return true
@@ -152,7 +170,23 @@ export class ComposerGhost {
 
   visible(): boolean {
     return !this.disposed && !!this.shown && eligibleComposer(this.view()) &&
-      this.editor.plainText === this.shown.text && this.offset() === this.shown.offset
+      this.editor.plainText === this.shown.text && this.offset() === this.shown.offset &&
+      this.marksKey() === this.shown.marks && this.predictor.modelRevision === this.shown.revision && this.fits(this.shown.prediction)
+  }
+
+  canCycle(): boolean {
+    return this.visible() && this.memo!.predictions.some((prediction, index) => index !== this.memo!.index && this.fits(prediction))
+  }
+
+  cycle(direction: 1 | -1): boolean {
+    if (!this.canCycle()) return false
+    const memo = this.memo!
+    do {
+      memo.index = (memo.index + direction + memo.predictions.length) % memo.predictions.length
+    } while (!this.fits(memo.predictions[memo.index]))
+    this.shown = undefined
+    this.editor.requestRender()
+    return true
   }
 
   dispose(): void {
