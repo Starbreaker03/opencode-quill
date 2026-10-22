@@ -113,7 +113,8 @@ export class ComposerGhost {
     if (query && !query.next && offset === text.length && last && last.offset === last.text.length && this.memo?.index === 0 && last.revision === revision && last.predictor === predictor && last.marks === signature && !last.prediction.replace && text.startsWith(last.text)) {
       const typed = text.slice(last.text.length)
       if (typed && last.prediction.suffix.startsWith(typed) && typed.length < last.prediction.suffix.length) {
-        predictions[0] = { ...last.prediction, suffix: last.prediction.suffix.slice(typed.length) }
+        const sticky = { ...last.prediction, suffix: last.prediction.suffix.slice(typed.length) }
+        predictions.splice(0, predictions.length, sticky, ...predictions.filter((prediction) => prediction.word !== sticky.word))
       }
     }
     this.memo = { text, offset, marks: signature, revision, predictor, predictions, index: 0 }

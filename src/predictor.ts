@@ -76,13 +76,14 @@ export class PersonalModel {
       this.seen.add(prompt.id)
       changed = true
       if (prompt.text.length > 4000 || prompt.text.split("\n").length > 12) continue
+      const masked = this.grammar.prose ? this.grammar.mask(prompt.text) : prompt.text
       for (const sequence of this.grammar.sequences(prompt.text)) {
         const words = sequence.map((word) => word.text)
         for (let index = 0; index < words.length; index++) {
           const { start, end } = sequence[index]
           increment(this.words, words[index])
           const form = prompt.text.slice(start, end).normalize("NFC").replaceAll("’", "'")
-          if (this.grammar.prose && form !== words[index] && !sentenceStart(prompt.text, start)) increment(this.forms, form)
+          if (this.grammar.prose && form !== words[index] && !sentenceStart(masked, start)) increment(this.forms, form)
           if (index > 0) increment(this.bigrams, `${words[index - 1]}\0${words[index]}`)
           if (index > 1) increment(this.trigrams, `${words[index - 2]}\0${words[index - 1]}\0${words[index]}`)
         }
@@ -114,13 +115,16 @@ export class PersonalModel {
   }
 }
 
-function totals(counts: Map<string, number>): Map<string, { total: number; types: number }> {
-  const result = new Map<string, { total: number; types: number }>()
+type Totals = { total: number; types: number; max: number }
+
+function totals(counts: Map<string, number>): Map<string, Totals> {
+  const result = new Map<string, Totals>()
   for (const [key, count] of counts) {
     const context = key.slice(0, key.lastIndexOf("\0"))
-    const entry = result.get(context) ?? { total: 0, types: 0 }
+    const entry = result.get(context) ?? { total: 0, types: 0, max: 0 }
     entry.total += count
     entry.types++
+    entry.max = Math.max(entry.max, count)
     result.set(context, entry)
   }
   return result
@@ -205,8 +209,8 @@ export class WordPredictor {
   private priorTotal = 0
   private personal = new PersonalModel()
   private personalTotal = 0
-  private bigramTotals = new Map<string, { total: number; types: number }>()
-  private trigramTotals = new Map<string, { total: number; types: number }>()
+  private bigramTotals = new Map<string, Totals>()
+  private trigramTotals = new Map<string, Totals>()
   private vocabulary: string[] = []
   private forms = new Map<string, string>()
 
@@ -278,7 +282,8 @@ export class WordPredictor {
     const trigram = pair && this.trigramTotals.get(pair)
     if (trigram && trigram.total >= 2) {
       const count = this.personal.trigrams.get(`${pair}\0${word}`) ?? 0
-      score = Math.max(count - DISCOUNT, 0) / trigram.total + DISCOUNT * trigram.types / trigram.total * score
+      const discounted = Math.max(count - DISCOUNT, 0) / trigram.total + DISCOUNT * trigram.types / trigram.total * score
+      score = trigram.max >= 2 ? discounted : Math.max(score, discounted)
     }
     return score
   }
@@ -328,15 +333,16 @@ export class WordPredictor {
     if (query.next && evidence < 2) return []
     if (!query.next && [...prefix].length < 2 && evidence < 2) return []
     const slash = prefix.includes("/")
+    const followed = (word: string) => (previous ? this.personal.bigrams.get(`${previous}\0${word}`) ?? 0 : 0) >= 2 ||
+      (pair ? this.personal.trigrams.get(`${pair}\0${word}`) ?? 0 : 0) >= 2
+    const eligible = (word: string) => !query.next || followed(word)
     const candidates = new Map<string, number>()
     for (let index = lowerBound(this.vocabulary, prefix); index < this.vocabulary.length; index++) {
       const word = this.vocabulary[index]
       if (!word.startsWith(prefix)) break
-      if (query.next || slash === word.includes("/")) candidates.set(word, 1)
+      if ((query.next || slash === word.includes("/")) && eligible(word)) candidates.set(word, 1)
     }
-    for (const word of local.keys()) if (!word.includes("/") && word.startsWith(prefix) && (query.next || !slash)) candidates.set(word, 1)
-    const followed = (word: string) => (previous ? this.personal.bigrams.get(`${previous}\0${word}`) ?? 0 : 0) >= 2 ||
-      (pair ? this.personal.trigrams.get(`${pair}\0${word}`) ?? 0 : 0) >= 2
+    for (const word of local.keys()) if (!word.includes("/") && word.startsWith(prefix) && (query.next || !slash) && eligible(word)) candidates.set(word, 1)
     const suggest = (): Prediction[] => {
       const ranked: { word: string; score: number; weight: number }[] = []
       let sum = 0
@@ -351,7 +357,7 @@ export class WordPredictor {
       const predictions: Prediction[] = []
       for (const { word: best, score: bestScore, weight: bestWeight } of ranked) {
         const confidence = bestWeight < 1 ? typoConfidence(bestScore, sum) : query.next ? bestScore : bestScore / (sum || 1)
-        if (!bestScore || best === prefix || confidence === undefined || (query.next && !followed(best)) || (bestWeight === 1 && confidence < 0.3)) {
+        if (!bestScore || best === prefix || confidence === undefined || (bestWeight === 1 && confidence < 0.3)) {
           if (!predictions.length) return []
           continue
         }

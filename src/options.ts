@@ -28,12 +28,14 @@ export type QuillCommand =
   | { type: "enable"; value: boolean }
   | { type: "clear" }
   | { type: "shell"; value: boolean }
+  | { type: "casing" }
   | { type: "invalid" }
 
 export function parseQuillCommand(input: string | undefined): QuillCommand {
   const raw = input?.trim().toLowerCase() ?? ""
   if (!raw || raw === "toggle") return { type: "toggle" }
   if (raw === "clear" || raw === "reset") return { type: "clear" }
+  if (raw === "clear casing" || raw === "reset casing") return { type: "casing" }
   if (raw === "on") return { type: "enable", value: true }
   if (raw === "off") return { type: "enable", value: false }
   if (raw === "shell on") return { type: "shell", value: true }

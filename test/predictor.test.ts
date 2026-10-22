@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { expect, spyOn, test } from "bun:test"
 import frequencies from "subtlex-word-frequencies"
 import { emptySnapshot, PersonalModel, trim, WordPredictor } from "../src/predictor"
 import { completionQuery } from "../src/prose"
@@ -527,4 +527,76 @@ test("a hyphenated or dotted learned word does not hide its shorter stem", () =>
   const predictor = new WordPredictor([])
   predictor.setPersonal(model.snapshot())
   expect(predictor.complete(completionQuery("alpha ", 6)!)).toMatchObject({ word: "zzdoc" })
+})
+
+test("sentence starts are judged on masked text, so a leading slash command does not make a capital mid-sentence", () => {
+  const forms = (text: string) => {
+    const model = new PersonalModel()
+    model.observe(Array.from({ length: 3 }, (_, index) => ({ id: `${text}${index}`, text })))
+    return model.snapshot().forms
+  }
+  expect(forms("/btw Please ship it")).toEqual([])
+  expect(forms("`code` Please ship it")).toEqual([])
+  expect(forms("ship it Please")).toEqual([["Please", 3]])
+  expect(forms("use `code` OpenCode here")).toEqual([["OpenCode", 3]])
+  const model = new PersonalModel()
+  model.observe(Array.from({ length: 3 }, (_, index) => ({ id: String(index), text: "/btw Please ship it" })))
+  const predictor = new WordPredictor(frequencies)
+  predictor.setPersonal(model.snapshot())
+  expect(predictor.complete(completionQuery("ship pl", 7)!)).toMatchObject({ suffix: "ease", word: "please" })
+})
+
+test("a trigram context whose continuations were each seen once does not discount the bigram", () => {
+  const model = new PersonalModel()
+  const prompts = (text: string, count: number, key: string) => Array.from({ length: count }, (_, index) => ({ id: `${key}${index}`, text }))
+  model.observe([...prompts("my claude foo", 1, "a"), ...prompts("my claude bar", 1, "b"), ...prompts("claude code", 5, "c")])
+  const predictor = new WordPredictor([])
+  predictor.setPersonal(model.snapshot())
+  const withPair = complete(predictor, "my claude ")
+  const withoutPair = complete(predictor, "the claude ")
+  expect(withoutPair).toMatchObject({ word: "code" })
+  expect(withPair).toMatchObject({ word: "code" })
+  expect(withPair!.confidence).toBeCloseTo(withoutPair!.confidence, 10)
+  model.observe(prompts("my claude code", 2, "d"))
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "my claude ")).toMatchObject({ word: "code" })
+})
+
+test("next-word queries score only words that follow the context", () => {
+  const model = new PersonalModel()
+  model.observe([
+    ...Array.from({ length: 3 }, (_, index) => ({ id: `a${index}`, text: "please run tests" })),
+    ...Array.from({ length: 3 }, (_, index) => ({ id: `b${index}`, text: "please run builds" })),
+  ])
+  const predictor = new WordPredictor(frequencies)
+  predictor.setPersonal(model.snapshot())
+  const spy = spyOn(predictor as unknown as { score: (word: string, context: readonly string[]) => number }, "score")
+  const words = predictor.candidates(completionQuery("please run ", 11)!).map((candidate) => candidate.word)
+  expect(words.sort()).toEqual(["builds", "tests"])
+  expect(spy.mock.calls.length).toBeLessThanOrEqual(2)
+})
+
+test("a continuation seen once after the exact pair keeps its trigram support", () => {
+  const model = new PersonalModel()
+  const prompts = (text: string, count: number, key: string) => Array.from({ length: count }, (_, index) => ({ id: `${key}${index}`, text }))
+  model.observe([
+    ...prompts("create a new", 1, "a"), ...prompts("create a file", 1, "b"),
+    ...["new", "file", "test", "plan", "draft"].flatMap((word) => prompts(`a ${word}`, 2, word)),
+  ])
+  const predictor = new WordPredictor([])
+  predictor.setPersonal(model.snapshot())
+  expect(predictor.candidates(completionQuery("create a ", 9)!).map((candidate) => candidate.word).sort()).toEqual(["file", "new"])
+  expect(predictor.candidates(completionQuery("make a ", 7)!)).toEqual([])
+})
+
+test("dropping only the learned casing keeps vocabulary and phrases", () => {
+  const model = new PersonalModel()
+  model.observe(Array.from({ length: 3 }, (_, index) => ({ id: String(index), text: "we like OpenCode a lot" })))
+  const snapshot = model.snapshot()
+  const predictor = new WordPredictor(frequencies)
+  predictor.setPersonal(snapshot)
+  expect(complete(predictor, "we like Ope")).toMatchObject({ suffix: "nCode" })
+  predictor.setPersonal({ ...snapshot, forms: [] })
+  expect(complete(predictor, "we like ope")).toMatchObject({ suffix: "ncode", word: "opencode" })
+  expect(predictor.complete(completionQuery("we like ", 8)!)).toMatchObject({ word: "opencode" })
 })

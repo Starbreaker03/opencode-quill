@@ -3,6 +3,7 @@ import { BoxRenderable, InputRenderable, RGBA, TextareaRenderable } from "@opent
 import { createTestRenderer } from "@opentui/core/testing"
 import { ComposerGhost, dimGhostColor, eligibleComposer, findComposer, type Composer } from "../src/ghost"
 import { PersonalModel, WordPredictor } from "../src/predictor"
+import { proseGrammar } from "../src/prose"
 
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() })
@@ -550,4 +551,37 @@ test("paints and accepts a typo replacement on the current word with single-step
   expect(fixture.editor.plainText).toBe("please complete")
   expect(fixture.editor.undo()).toBe(true)
   expect(fixture.editor.plainText).toBe("please cmplete")
+})
+
+test("sticky continuation keeps the shown word first without duplicating it in the cycle list", async () => {
+  const testing = await createTestRenderer({ width: 60, height: 8 })
+  cleanups.push(() => testing.renderer.destroy())
+  const parent = new BoxRenderable(testing.renderer, { id: "composer", width: 60, height: 4, paddingLeft: 2, paddingTop: 1 })
+  const editor = new TextareaRenderable(testing.renderer, { id: "input", width: "100%", height: 2 })
+  parent.add(editor)
+  testing.renderer.root.add(parent)
+  editor.setText("please co")
+  editor.gotoBufferEnd()
+  editor.focus()
+  const view: Composer = { editor, normal: true, focused: editor, mode: "base", selected: false, enabled: true }
+  const complete = { suffix: "mplete", word: "complete", confidence: 0.9 }
+  const compare = { suffix: "mpare", word: "compare", confidence: 0.8 }
+  const predictor = {
+    modelRevision: 1,
+    grammar: proseGrammar,
+    candidates: (query: { prefix: string }) => query.prefix === "co" ? [complete, compare] : [{ ...compare, suffix: "pare" }, { ...complete, suffix: "plete" }],
+  } as unknown as WordPredictor
+  const ghost = new ComposerGhost(editor, predictor, () => view, () => RGBA.fromHex("#888888"), testing.renderer)
+  cleanups.push(() => ghost.dispose())
+  await testing.renderOnce()
+  expect(testing.captureCharFrame()).toContain("please complete")
+  editor.insertText("m")
+  await testing.renderOnce()
+  expect(testing.captureCharFrame()).toContain("please complete")
+  expect(ghost.cycle(1)).toBe(true)
+  await testing.renderOnce()
+  expect(testing.captureCharFrame()).toContain("please compare")
+  expect(ghost.cycle(1)).toBe(true)
+  await testing.renderOnce()
+  expect(testing.captureCharFrame()).toContain("please complete")
 })

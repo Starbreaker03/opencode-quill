@@ -62,5 +62,7 @@ test("parses quill slash commands into toggle, explicit enable, and clear", () =
   expect(parseQuillCommand("off")).toEqual({ type: "enable", value: false })
   expect(parseQuillCommand("clear")).toEqual({ type: "clear" })
   expect(parseQuillCommand("reset")).toEqual({ type: "clear" })
+  expect(parseQuillCommand("clear casing")).toEqual({ type: "casing" })
+  expect(parseQuillCommand("RESET CASING")).toEqual({ type: "casing" })
   expect(parseQuillCommand("unknown")).toEqual({ type: "invalid" })
 })

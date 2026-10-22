@@ -150,6 +150,14 @@ export default Plugin.define({
       context.ui.toast.show({ title: "Quill", message: "Word autocomplete history cleared" })
     }
 
+    const clearCasing = async () => {
+      const next = { ...unwrap(learning.snapshot), forms: [] }
+      predictor.setPersonal(next)
+      await setLearning((draft) => { draft.snapshot = { ...unwrap(draft.snapshot), forms: [] } })
+      ghost?.invalidate()
+      context.ui.toast.show({ title: "Quill", message: "Learned word casing cleared" })
+    }
+
     const disposeEffects = createRoot((dispose) => {
       createEffect(() => {
         const snapshot = learning.snapshot
@@ -211,6 +219,10 @@ export default Plugin.define({
               await clearHistory()
               return
             }
+            if (command.type === "casing") {
+              await clearCasing()
+              return
+            }
             if (command.type === "shell") {
               await setSettings((draft) => { draft.shell = command.value })
               ghost?.invalidate()
@@ -218,7 +230,7 @@ export default Plugin.define({
               return
             }
             if (command.type === "invalid") {
-              context.ui.toast.show({ title: "Quill", message: "Use /quill, /quill on, /quill off, /quill shell on, /quill shell off, or /quill clear", variant: "warning" })
+              context.ui.toast.show({ title: "Quill", message: "Use /quill, /quill on, /quill off, /quill shell on, /quill shell off, /quill clear, or /quill clear casing", variant: "warning" })
               return
             }
             const enabled = command.type === "enable" ? command.value : !settings.enabled

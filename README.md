@@ -220,6 +220,7 @@ handlers remain in control. Dialogs and selections also suppress Quill.
 - `/quill` — Toggle word autocomplete on or off (persisted across sessions).
 - `/quill on` / `/quill off` — Set autocomplete explicitly.
 - `/quill shell on` / `/quill shell off` — Set shell-mode autocomplete explicitly.
+- `/quill clear casing` (alias `/quill reset casing`) — Forget only the learned word casing (`OpenCode`, `GitHub`), keeping the vocabulary and phrases.
 - `/quill clear` (alias `/quill reset`) — Erase everything Quill has learned from your prompts and shell commands.
 - `quill.next` / `quill.previous` — Keymap commands for cycling visible word
   alternatives; no default bindings. Configure the cycle options above or
