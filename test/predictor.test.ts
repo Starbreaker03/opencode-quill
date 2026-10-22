@@ -144,6 +144,41 @@ test("learns new prose vocabulary only after repeated use", () => {
   expect(complete(predictor, "please revise q")?.suffix).toBe("uillish")
 })
 
+test("learns and completes slash-joined tokens when typing the slash or second segment", () => {
+  const model = new PersonalModel()
+  const predictor = new WordPredictor(frequencies)
+  expect(complete(predictor, "edit src/compo")).toBeUndefined()
+  expect(complete(predictor, "machine/")).toBeUndefined()
+  expect(complete(predictor, "machine/work please machine/")).toBeUndefined()
+  model.observe([{ id: "0", text: "rebase machine/work onto origin/main." }])
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "machine/")).toBeUndefined()
+  expect(complete(predictor, "machine/work please machine/")).toBeUndefined()
+  model.observe([
+    { id: "1", text: "rebase machine/work onto origin/main." },
+    { id: "2", text: "rebase machine/work onto origin/main." },
+  ])
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "machine/")).toMatchObject({ suffix: "work", word: "machine/work" })
+  expect(complete(predictor, "rebase machine/")).toMatchObject({ suffix: "work", word: "machine/work" })
+  expect(complete(predictor, "rebase machine/w")).toMatchObject({ suffix: "ork", word: "machine/work" })
+  expect(complete(predictor, "origin/")).toMatchObject({ suffix: "main", word: "origin/main" })
+  expect(complete(predictor, "rebase ")?.suffix).toBe("machine/work")
+  expect(complete(predictor, "the virtual machine")).toBeUndefined()
+  expect(complete(predictor, "edit src/compo")).toBeUndefined()
+})
+
+test("preserves baseline vocabulary typo corrections as the personal model grows", () => {
+  const model = new PersonalModel({
+    ...emptySnapshot(),
+    words: [["alpha", 25_000]],
+  })
+  const predictor = new WordPredictor(frequencies)
+  predictor.setPersonal(model.snapshot())
+  expect(complete(predictor, "becua")).toMatchObject({ suffix: "because", word: "because", replace: 5 })
+  expect(complete(predictor, "pleae")).toMatchObject({ suffix: "please", word: "please", replace: 5 })
+})
+
 test("prompt-local vocabulary is usable without being persisted", () => {
   const predictor = new WordPredictor([])
   expect(complete(predictor, "quillish please revise qui")?.suffix).toBe("llish")

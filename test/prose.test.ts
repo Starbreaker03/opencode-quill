@@ -51,12 +51,32 @@ test("protected ranges are masked out of words and break left context", () => {
 })
 
 test.each([
-  "/quill", "!echo hello", "$ git status", "edit src/compo", "edit foo.ts", "edit .conf",
+  "/quill", "!echo hello", "$ git status", "edit src/sub/compo", "edit foo.ts", "edit .conf",
   "use foo_bar", "use camelCase", "ping @alice", "https://example.com/hel", "let variable",
   "please `complete this", "please `complete this`", "```ts\ncomplete this", "~~~\ncomplete this",
   "    complete this", "key=secret", "--option", "use auth-token", "port 8080", "[label](link)",
 ])("does not complete non-prose: %s", (text) => {
   expect(completionQuery(text, text.length)).toBeUndefined()
+})
+
+test("queries slash-joined tokens and trailing-slash prefixes without admitting paths", () => {
+  expect(completionQuery("machine/", 8)).toEqual({ before: "", prefix: "machine/", next: false, words: [] })
+  expect(completionQuery("rebase machine/", 15)).toEqual({
+    before: "rebase ",
+    prefix: "machine/",
+    next: false,
+    words: [{ text: "rebase", start: 0, end: 6 }],
+  })
+  expect(completionQuery("rebase machine/w", 16)).toEqual({
+    before: "rebase ",
+    prefix: "machine/w",
+    next: false,
+    words: [{ text: "rebase", start: 0, end: 6 }],
+  })
+  expect(proseSequences("rebase machine/work onto clean dist/ folder").map((sequence) => sequence.map((word) => word.text)))
+    .toEqual([["rebase", "machine/work", "onto", "clean"], ["folder"]])
+  expect(proseSequences("push to origin/main. skip dist/. now").map((sequence) => sequence.map((word) => word.text)))
+    .toEqual([["push", "to", "origin/main"], ["skip"], ["now"]])
 })
 
 test("code and punctuation break context without shifting Unicode offsets", () => {

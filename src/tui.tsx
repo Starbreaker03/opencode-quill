@@ -58,9 +58,12 @@ export default Plugin.define({
       }, () => dimGhostColor(context.theme.text.muted), context.renderer, options.completeAtLineEnd)
     }
 
+    const sessionInfo = (sessionID: string) =>
+      context.data.session.get?.(sessionID) ?? context.data.session.list().find((session) => session.id === sessionID)
+
     const learn = async (sessionID: string, announce = true) => {
       if (disposed || !settings.enabled) return
-      if (context.data.session.list().find((session) => session.id === sessionID)?.parentID) return
+      if (sessionInfo(sessionID)?.parentID) return
       const active = inFlight.get(sessionID)
       if (active) {
         if (announce) {
@@ -78,9 +81,9 @@ export default Plugin.define({
           const shouldAnnounce = state.announce
           state.announce = false
           try {
-            await context.data.session.message.sync(sessionID)
+            await Promise.all([context.data.session.sync?.(sessionID), context.data.session.message.sync(sessionID)])
             if (disposed || !settings.enabled) return
-            if (context.data.session.list().find((session) => session.id === sessionID)?.parentID) return
+            if (sessionInfo(sessionID)?.parentID) return
             if (version !== resetVersion) continue
             const candidates = context.data.session.message.list(sessionID)
               .filter((message) => message.type === "user")
@@ -97,7 +100,8 @@ export default Plugin.define({
             if (model.observe(prompts)) {
               await setLearning((draft) => {
                 if (disposed || !settings.enabled || version !== resetVersion) return
-                if (context.data.session.list().find((session) => session.id === sessionID)?.parentID) return
+                const session = sessionInfo(sessionID)
+                if (!session || session.parentID) return
                 const latest = new PersonalModel(unwrap(draft.snapshot))
                 if (latest.observe(promptsFor(latest.clearedAt))) draft.snapshot = latest.snapshot()
               })

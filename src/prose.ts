@@ -1,6 +1,8 @@
-const WORD = /[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*/gu
-const WHOLE_WORD = /^[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*$/u
-const WORD_END = /[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*$/u
+const PART = "[\\p{L}\\p{M}]+(?:['’][\\p{L}\\p{M}]+)*"
+const WORD = new RegExp(`${PART}(?:\\/${PART})?`, "gu")
+const WHOLE_WORD = new RegExp(`^${PART}(?:\\/${PART})?$`, "u")
+const WORD_PREFIX = new RegExp(`^${PART}(?:\\/(?:${PART})?)?$`, "u")
+const WORD_END = new RegExp(`${PART}(?:\\/(?:${PART})?)?$`, "u")
 
 export type Word = { text: string; start: number; end: number }
 export type CompletionQuery = { before: string; prefix: string; next: boolean; words?: readonly Word[] }
@@ -11,6 +13,10 @@ export function normalizeWord(word: string): string {
 
 export function isWord(word: string): boolean {
   return WHOLE_WORD.test(word) && [...word].length <= 32
+}
+
+function isPrefix(prefix: string): boolean {
+  return WORD_PREFIX.test(prefix) && [...prefix].length <= 32
 }
 
 function blank(text: string): string {
@@ -25,7 +31,8 @@ export function maskProse(text: string): string {
   masked = masked.replace(/^ {4,}.*$/gm, blank)
   masked = masked.replace(/\S+/g, (token) => {
     const core = token.replace(/^["“‘([{]+|["”’),;:!?}\]]+$/g, "")
-    if (/[\/_@=\\<>-]|\d|[\p{Ll}][\p{Lu}]/u.test(core) || /^[.~]/.test(core)) return blank(token)
+    if (/[_@=\\<>-]|\d|[\p{Ll}][\p{Lu}]/u.test(core) || /^[.~]/.test(core)) return blank(token)
+    if (core.includes("/") && !(core.endsWith(".") ? WHOLE_WORD.test(core.slice(0, -1)) : WORD_PREFIX.test(core))) return blank(token)
     if (/[^.]+\.[^.]+|\.\.|--/.test(core)) return blank(token)
     return token
   })
@@ -34,7 +41,7 @@ export function maskProse(text: string): string {
 
 export function proseWords(text: string, masked = maskProse(text)): Word[] {
   return [...masked.matchAll(WORD)]
-    .filter((match) => isWord(match[0]))
+    .filter((match) => isWord(match[0]) && masked[match.index + match[0].length] !== "/")
     .map((match) => ({ text: normalizeWord(match[0]), start: match.index, end: match.index + match[0].length }))
 }
 
@@ -81,7 +88,7 @@ export function completionQuery(draft: string, characterOffset: number, protecte
   let end = text.length
   if (prefix) {
     const start = text.length - prefix.length
-    if (masked.slice(start) !== prefix || !isWord(prefix)) return
+    if (masked.slice(start) !== prefix || !isPrefix(prefix)) return
     const preceding = text[start - 1]
     if (preceding && !/[ \t\n"“([{]/.test(preceding)) return
     end = start

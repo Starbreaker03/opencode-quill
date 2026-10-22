@@ -190,6 +190,13 @@ test("child sessions are never learned from", async () => {
   expect(fixture.learning.snapshot.seen).toEqual([])
 })
 
+test("unlisted sessions without root metadata are never persisted", async () => {
+  const fixture = await setup(async () => {}, [{ id: "task", type: "user", text: "please run tests" }], undefined, "session", [])
+  fixture.emit("session.execution.started")
+  await settle()
+  expect(fixture.learning.snapshot).toEqual(emptySnapshot())
+})
+
 test("a session event after clear still queues a fresh learning pass", async () => {
   const first = Promise.withResolvers<void>()
   const second = Promise.withResolvers<void>()

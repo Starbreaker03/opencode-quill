@@ -229,7 +229,7 @@ export class WordPredictor {
       const word = learned[index]
       if (this.prior.has(word)) continue
       for (let next = index + 1; next < learned.length && learned[next].startsWith(word); next++) {
-        if (counts.get(learned[next])! >= counts.get(word)!) {
+        if (learned[next][word.length] !== "/" && counts.get(learned[next])! >= counts.get(word)!) {
           fragments.add(word)
           break
         }
@@ -252,7 +252,7 @@ export class WordPredictor {
       for (let index = lowerBound(this.vocabulary, head); index < this.vocabulary.length; index++) {
         const word = this.vocabulary[index]
         if (!word.startsWith(head)) break
-        if (word.length >= prefix.length - 1 && word.length <= maxLength) yield word
+        if (!word.includes("/") && word.length >= prefix.length - 1 && word.length <= maxLength) yield word
       }
     }
   }
@@ -260,7 +260,7 @@ export class WordPredictor {
   private score(word: string, context: readonly string[]): number {
     const prior = (this.prior.get(word) ?? 0) / (this.priorTotal || 1)
     const personal = (this.personal.words.get(word) ?? 0) / (this.personalTotal || 1)
-    const weight = this.personalTotal / (this.personalTotal + 100)
+    const weight = this.priorTotal ? Math.min(0.7, this.personalTotal / (this.personalTotal + 100)) : 1
     let score = weight * personal + (1 - weight) * prior
     const previous = context.at(-1)
     const bigram = previous && this.bigramTotals.get(previous)
@@ -318,13 +318,14 @@ export class WordPredictor {
     const evidence = this.bigramTotals.get(context.at(-1) ?? "")?.total ?? 0
     if (query.next && evidence < 2) return []
     if (!query.next && [...prefix].length < 2 && evidence < 2) return []
+    const slash = prefix.includes("/")
     const candidates = new Map<string, number>()
     for (let index = lowerBound(this.vocabulary, prefix); index < this.vocabulary.length; index++) {
       const word = this.vocabulary[index]
       if (!word.startsWith(prefix)) break
-      candidates.set(word, 1)
+      if (query.next || slash === word.includes("/")) candidates.set(word, 1)
     }
-    for (const word of local.keys()) if (word.startsWith(prefix)) candidates.set(word, 1)
+    for (const word of local.keys()) if (!word.includes("/") && word.startsWith(prefix) && (query.next || !slash)) candidates.set(word, 1)
     const suggest = (): Prediction[] => {
       const ranked: { word: string; score: number; weight: number }[] = []
       let sum = 0
@@ -358,14 +359,14 @@ export class WordPredictor {
       return predictions
     }
     const completion = suggest()
-    if (completion.length || query.next || prefix.length < 3 || candidates.has(prefix)) return completion
+    if (completion.length || query.next || prefix.length < 3 || slash || candidates.has(prefix)) return completion
     for (const word of this.nearbyWords(prefix)) {
       if (candidates.has(word)) continue
       const weight = typoWeight(prefix, word)
       if (weight > 0) candidates.set(word, weight)
     }
     for (const word of local.keys()) {
-      if (candidates.has(word)) continue
+      if (candidates.has(word) || word.includes("/")) continue
       const weight = typoWeight(prefix, word)
       if (weight > 0) candidates.set(word, weight)
     }
