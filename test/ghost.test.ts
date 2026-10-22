@@ -1,7 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test"
-import { BoxRenderable, RGBA, TextareaRenderable } from "@opentui/core"
+import { BoxRenderable, InputRenderable, RGBA, TextareaRenderable } from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"
-import { ComposerGhost, dimGhostColor, eligibleComposer, type Composer } from "../src/ghost"
+import { ComposerGhost, dimGhostColor, eligibleComposer, findComposer, type Composer } from "../src/ghost"
 import { PersonalModel, WordPredictor } from "../src/predictor"
 
 const cleanups: (() => void)[] = []
@@ -32,6 +32,36 @@ test("paints ghost text at the real cursor without changing the draft", async ()
   expect(fixture.ghost.visible()).toBe(true)
   expect(fixture.ghost.accept()).toBe(true)
   expect(fixture.editor.plainText).toBe("please complete")
+})
+
+test("discovers only an unambiguous live composer with clipboard capability", async () => {
+  const fixture = await setup()
+  const parent = fixture.editor.parent!
+  const footer = new BoxRenderable(fixture.renderer, { id: "footer" })
+  const marker = new BoxRenderable(fixture.renderer, { id: "marker" })
+  footer.add(marker)
+  parent.add(footer)
+  const isEditor = (node: import("@opentui/core").Renderable): node is TextareaRenderable => node instanceof TextareaRenderable && !(node instanceof InputRenderable)
+  expect(findComposer(marker, isEditor)).toBeUndefined()
+  Object.defineProperty(fixture.editor, "getClipboardText", { value: () => "", configurable: true })
+  expect(findComposer(marker, isEditor)).toBe(fixture.editor)
+  const search = new InputRenderable(fixture.renderer, { id: "search" })
+  parent.add(search)
+  expect(findComposer(marker, isEditor)).toBe(fixture.editor)
+  const other = new TextareaRenderable(fixture.renderer, { id: "other" })
+  parent.add(other)
+  expect(findComposer(marker, isEditor)).toBeUndefined()
+  other.destroy()
+  expect(findComposer(marker, isEditor)).toBe(fixture.editor)
+  Object.defineProperty(fixture.editor, "getClipboardText", { value: undefined, configurable: true })
+  expect(findComposer(marker, isEditor)).toBeUndefined()
+  Object.defineProperty(fixture.editor, "getClipboardText", { value: () => "", configurable: true })
+  expect(findComposer(marker, isEditor)).toBe(fixture.editor)
+  fixture.editor.destroy()
+  expect(findComposer(marker, isEditor)).toBeUndefined()
+  marker.destroy()
+  expect(findComposer(marker, isEditor)).toBeUndefined()
+  expect(findComposer(undefined, isEditor)).toBeUndefined()
 })
 
 test.each(["please comp", "😊 漢字 comp", "please re\u0301"])("opt-in logical-line-end insertion preserves trailing lines, callbacks and single-step undo: %s", async (line) => {

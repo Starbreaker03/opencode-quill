@@ -18,7 +18,6 @@ const MIN_TYPO_SCORE = 0.000001
 const PRIOR_LIMIT = 20_000
 const WORD_LIMIT = 8000
 const CONTEXT_LIMIT = 30_000
-const SEEN_LIMIT = 8000
 const DECAY_TOTAL = 100_000
 
 export function emptySnapshot(): Snapshot {
@@ -31,8 +30,14 @@ function sentenceStart(text: string, start: number): boolean {
   return index < 0 || /[\n.!?:]/.test(text[index])
 }
 
-function restore(rows: [string, number][], limit: number): Map<string, number> {
-  return new Map(rows.slice(0, limit).filter(([word, count]) => typeof word === "string" && word.length <= 100 && Number.isFinite(count) && count > 0))
+function restore(rows: [string, number][], limit: number, parts = 1, forms = false): Map<string, number> {
+  return new Map(rows.slice(0, limit).filter(([key, count]) => {
+    if (typeof key !== "string" || key.length > parts * 64 + parts - 1 || !Number.isFinite(count) || count <= 0) return false
+    const words = key.split("\0")
+    return words.length === parts && words.every((word) => isWord(word) && (forms
+      ? word === word.normalize("NFC").replaceAll("’", "'")
+      : word === normalizeWord(word)))
+  }))
 }
 
 const byCount = (a: [string, number], b: [string, number]) => b[1] - a[1]
@@ -58,10 +63,10 @@ export class PersonalModel {
   constructor(snapshot: Snapshot = emptySnapshot()) {
     this.clearedAt = Number.isFinite(snapshot.clearedAt) ? snapshot.clearedAt : undefined
     this.words = restore(snapshot.words, WORD_LIMIT)
-    this.bigrams = restore(snapshot.bigrams, CONTEXT_LIMIT)
-    this.trigrams = restore(snapshot.trigrams, CONTEXT_LIMIT)
-    this.forms = restore(snapshot.forms ?? [], WORD_LIMIT)
-    this.seen = new Set(snapshot.seen.slice(-SEEN_LIMIT))
+    this.bigrams = restore(snapshot.bigrams, CONTEXT_LIMIT, 2)
+    this.trigrams = restore(snapshot.trigrams, CONTEXT_LIMIT, 3)
+    this.forms = restore(snapshot.forms ?? [], WORD_LIMIT, 1, true)
+    this.seen = new Set(snapshot.seen)
   }
 
   observe(prompts: readonly Prompt[]): boolean {
@@ -103,7 +108,7 @@ export class PersonalModel {
       bigrams: trim(this.bigrams, CONTEXT_LIMIT),
       trigrams: trim(this.trigrams, CONTEXT_LIMIT),
       forms: trim(this.forms, WORD_LIMIT),
-      seen: [...this.seen].slice(-SEEN_LIMIT),
+      seen: [...this.seen],
       ...(this.clearedAt === undefined ? {} : { clearedAt: this.clearedAt }),
     }
   }

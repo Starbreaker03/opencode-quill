@@ -228,7 +228,9 @@ Quill learns from your own submitted prompts, never from assistant output:
   `session.execution.succeeded`, `session.inbox.delivered`).
 - On startup and when you open a session, it also backfills from the user
   messages of the current and most recently updated sessions.
-- Each message is ingested once, tracked by `<sessionID>:<messageID>`.
+- Each message is ingested once, tracked by `<sessionID>:<messageID>`. All
+  processed IDs, including those of ignored pastes, are retained until
+  `/quill clear`.
 - Only prose is learned. Code blocks, inline code, URLs, file paths,
   identifiers, slash commands, shell lines, indented blocks and very large
   pastes are ignored.
@@ -265,7 +267,7 @@ Quill learns from your own submitted prompts, never from assistant output:
   no suggestion. Context repair uses the same edit guards and confidence checks
   and requires repeated learned continuation evidence; not every typo produces
   a suggestion.
-- **Bounded size:** the personal model is pruned to its most frequent entries
+- **Bounded counts:** the personal model is pruned to its most frequent entries
   when saved. Once it holds about 100,000 learned words, every count is halved
   and single-use entries are dropped, so recent habits outweigh old ones.
 
@@ -285,6 +287,12 @@ your prose, so the model can reveal parts of your prompts. Quill does not store
 raw prompts or full message bodies. These files stay on your machine and are
 never tracked in Git or published to npm. `/quill clear` erases the learned
 model; the persisted on/off setting is separate.
+
+The processed-ID ledger is not pruned: its memory usage, stored size, and full
+serialization cost grow with the number of processed messages. Word and context
+counts remain bounded. Existing version-1 snapshots keep their counts and
+retained IDs without a reset. IDs absent from older capped snapshots cannot be
+recovered, so those messages may be learned again when backfilled.
 
 ## Development
 

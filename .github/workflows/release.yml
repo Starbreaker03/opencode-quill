@@ -39,6 +39,11 @@ jobs:
         id: published
         run: |
           version="${GITHUB_REF_NAME#v}"
+          manifest=$(node -p "require('./package.json').version")
+          if [ "$version" != "$manifest" ]; then
+            echo "::error::Tag version $version does not match package.json version $manifest"
+            exit 1
+          fi
           pkg=$(node -p "require('./package.json').name")
           if npm view "$pkg@$version" version >/dev/null 2>&1; then
             echo "exists=1" >> "$GITHUB_OUTPUT"

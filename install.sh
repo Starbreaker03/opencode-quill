@@ -83,7 +83,15 @@ for (const name of fs.readdirSync(source).filter((name) => /\.tsx?$/.test(name))
 fs.rmSync(path.join(destination, "tui.ts"), { force: true })
 fs.copyFileSync(path.join(path.dirname(source), "tsconfig.json"), path.join(destination, "tsconfig.json"))
 fs.cpSync(dependency, path.join(destination, "node_modules", "subtlex-word-frequencies"), { recursive: true })
-fs.writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n")
+const temporary = path.join(configDir, `.cli.json-${require("node:crypto").randomUUID()}`)
+try {
+  const mode = fs.existsSync(configFile) ? fs.statSync(configFile).mode & 0o777 : 0o600
+  fs.writeFileSync(temporary, JSON.stringify(config, null, 2) + "\n", { flag: "wx", mode })
+  fs.chmodSync(temporary, mode)
+  fs.renameSync(temporary, configFile)
+} finally {
+  fs.rmSync(temporary, { force: true })
+}
 console.log(`installed -> ${destination}`)
 console.log(`registered in ${configFile}`)
 JS

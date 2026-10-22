@@ -1,5 +1,20 @@
 import { expect, test } from "bun:test"
 import { completionQuery, leftContext, maskProse, proseSequences, proseWords } from "../src/prose"
+import { PersonalModel } from "../src/predictor"
+
+test.each(["```text\ncode\n```not-a-close\nplease complete", "~~~text\ncode\n```\nplease complete", "````text\ncode\n```\nplease complete", "\tplease complete"])("keeps fenced and tab-indented prose out of learning and completion: %s", (text) => {
+  const model = new PersonalModel()
+  model.observe([{ id: "repro", text }])
+  expect(model.snapshot().words).toEqual([])
+  expect(completionQuery(text, text.length)).toBeUndefined()
+  expect(completionQuery(text + "\nlater", text.length, [], true)).toBeUndefined()
+  expect(maskProse(text).length).toBe(text.length)
+})
+
+test.each(["```text\ncode\n```` \t\nplease comp", "~~~text\ncode\n~~~~\nplease comp", "```same line```\nplease comp", "```text\n😊 hidden\n```\nplease comp"])("recognizes closing fences without shifting prose: %s", (text) => {
+  expect(completionQuery(text, text.length)?.prefix).toBe("comp")
+  expect(maskProse(text).length).toBe(text.length)
+})
 
 test("queries the word suffix and next word at the end of a draft", () => {
   const words = [{ text: "can", start: 0, end: 3 }, { text: "you", start: 4, end: 7 }]

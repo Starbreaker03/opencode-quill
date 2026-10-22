@@ -24,11 +24,24 @@ function blank(text: string): string {
 }
 
 export function maskProse(text: string): string {
-  let masked = text.replace(/(^|\n)[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n[ \t]*\2[^\n]*(?=\n|$)|$)/g, blank)
+  let fence: string | undefined
+  let masked = text.replace(/[^\n]+/g, (line) => {
+    if (fence) {
+      const closing = /^ {0,3}(`{3,}|~{3,})[ \t\r]*$/.exec(line)?.[1]
+      if (closing && closing[0] === fence[0] && closing.length >= fence.length) fence = undefined
+      return blank(line)
+    }
+    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
+    if (opening && (opening[1][0] !== "`" || !opening[2].includes("`"))) {
+      fence = opening[1]
+      return blank(line)
+    }
+    return line
+  })
   masked = masked.replace(/(`+)[\s\S]*?(?:\1|$)/g, blank)
   masked = masked.replace(/(?:https?:\/\/|www\.)\S+|\[[^\]\n]*\]\([^\)\n]*\)|<[^>\n]+>/g, blank)
   masked = masked.replace(/^[ \t]*(?:[\/!$]|(?:const|let|var|function|class|import|export)\s|(?:Traceback|Error:)\b).*$/gm, blank)
-  masked = masked.replace(/^ {4,}.*$/gm, blank)
+  masked = masked.replace(/^(?: {4}| {0,3}\t).*$/gm, blank)
   masked = masked.replace(/\S+/g, (token) => {
     const core = token.replace(/^["“‘([{]+|["”’),;:!?}\]]+$/g, "")
     if (/[_@=\\<>-]|\d|[\p{Ll}][\p{Lu}]/u.test(core) || /^[.~]/.test(core)) return blank(token)

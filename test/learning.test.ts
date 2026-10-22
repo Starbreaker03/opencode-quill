@@ -1,6 +1,6 @@
 import { afterEach, expect, mock, test } from "bun:test"
 import { createStore, produce } from "solid-js/store"
-import { emptySnapshot, type Snapshot } from "../src/predictor"
+import { emptySnapshot, PersonalModel, type Snapshot } from "../src/predictor"
 import plugin from "../src/tui"
 
 type Message = { id: string; type: "user"; text: string; time?: { created: number } }
@@ -60,7 +60,7 @@ async function setup(sync: () => Promise<void>, initialMessages: Message[] = [],
     toast,
     setMessages: (value: Message[]) => { messages = value },
     setWriteGate: (value: Promise<void> | undefined) => { writeGate = value },
-    emit: (name: string) => { listeners.get(name)?.({ data: { sessionID: "session" } }) },
+    emit: (name: string, sessionID = "session") => { listeners.get(name)?.({ data: { sessionID } }) },
     run: async (id: string, input?: string) => {
       const command = layers.flatMap((layer) => layer().commands ?? []).find((command) => command.id === id)
       if (!command?.run) throw new Error(`Missing command: ${id}`)
@@ -96,6 +96,46 @@ test("deduplicates overlapping startup and route backfills", async () => {
   pending.resolve()
   await settle()
   expect(sync).toHaveBeenCalledTimes(1)
+})
+
+test("reopening old sessions after a large JSON restore never replays retained messages", async () => {
+  const model = new PersonalModel()
+  model.observe(Array.from({ length: 8001 }, (_, index) => ({ id: `session:${index}`, text: "please complete" })))
+  const snapshot: Snapshot = JSON.parse(JSON.stringify(model.snapshot()))
+  const fixture = await setup(async () => {}, [{ id: "0", type: "user", text: "please complete" }], undefined, "session", undefined, snapshot)
+  await settle()
+  expect(fixture.learning.snapshot).toEqual(snapshot)
+  fixture.setMessages([
+    { id: "0", type: "user", text: "please complete" },
+    { id: "new", type: "user", text: "please complete" },
+  ])
+  fixture.emit("session.inbox.delivered")
+  await settle()
+  expect(new Map(fixture.learning.snapshot.words).get("please")).toBe(8002)
+  expect(fixture.learning.snapshot.seen).toHaveLength(8002)
+  expect(fixture.learning.snapshot.seen).toContain("session:0")
+})
+
+test("overlapping session writes merge IDs into the latest draft without replay or lost learning", async () => {
+  const model = new PersonalModel()
+  model.observe(Array.from({ length: 8001 }, (_, index) => ({ id: `history:${index}`, text: "please complete" })))
+  const write = Promise.withResolvers<void>()
+  const fixture = await setup(async () => {}, [{ id: "shared", type: "user", text: "please complete", time: { created: 1 } }], write.promise, "home", [
+    { id: "session", time: { updated: 2 } },
+    { id: "other", time: { updated: 1 } },
+  ], JSON.parse(JSON.stringify(model.snapshot())))
+  await settle()
+  write.resolve()
+  await settle()
+  expect(fixture.learning.snapshot.seen).toHaveLength(8003)
+  expect(fixture.learning.snapshot.seen).toContain("session:shared")
+  expect(fixture.learning.snapshot.seen).toContain("other:shared")
+  expect(new Map(fixture.learning.snapshot.words).get("please")).toBe(8003)
+  fixture.emit("session.inbox.delivered")
+  fixture.emit("session.inbox.delivered", "other")
+  await settle()
+  expect(new Map(fixture.learning.snapshot.words).get("please")).toBe(8003)
+  expect(fixture.learning.snapshot.seen).toHaveLength(8003)
 })
 
 test.each(["quill.clear", "quill.toggle"])("%s cancels stale syncs and queued pre-clear events", async (command) => {

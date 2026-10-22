@@ -20,7 +20,7 @@ test("a repeated singleton moves to the newest position and survives trimming", 
 test("saturated context maps keep learning new phrases", () => {
   const model = new PersonalModel({
     ...emptySnapshot(),
-    trigrams: Array.from({ length: 30_000 }, (_, index): [string, number] => [`a${index}\0b\0c`, 1]),
+    trigrams: Array.from({ length: 30_000 }, (_, index): [string, number] => [`a${String(index).replace(/\d/g, (digit) => String.fromCharCode(97 + Number(digit)))}\0b\0c`, 1]),
   })
   model.observe([{ id: "1", text: "please review carefully" }, { id: "2", text: "please review carefully" }])
   const snapshot = model.snapshot()
@@ -199,6 +199,36 @@ test("deduplicates submitted messages across persistent model restores", () => {
   expect(restored.observe(prompts)).toBe(false)
   expect(restored.snapshot()).toEqual(snapshot)
   expect(restored.words.get("tests")).toBe(1)
+})
+
+test("retains every processed ID beyond eight thousand across repeated JSON restores", () => {
+  const prompts = Array.from({ length: 8001 }, (_, index) => ({ id: `session:${index}`, text: "please complete" }))
+  prompts.push({ id: "session:paste", text: "hidden ".repeat(1000) }, { id: "session:lines", text: "hidden\n".repeat(13) })
+  let model = new PersonalModel()
+  expect(model.observe(prompts)).toBe(true)
+  expect(model.seen.size).toBe(8003)
+  const snapshot = model.snapshot()
+  expect(snapshot.seen).toHaveLength(8003)
+  for (let iteration = 0; iteration < 3; iteration++) {
+    model = new PersonalModel(JSON.parse(JSON.stringify(model.snapshot())))
+    expect(model.seen.size).toBe(8003)
+    expect(model.observe(prompts)).toBe(false)
+    expect(model.snapshot()).toEqual(snapshot)
+    expect(model.words.get("please")).toBe(8001)
+    expect(model.words.has("hidden")).toBe(false)
+  }
+  expect(model.observe([{ id: "session:new", text: "please complete" }])).toBe(true)
+  expect(model.words.get("please")).toBe(8002)
+  expect(model.snapshot().seen).toHaveLength(8004)
+})
+
+test("version one snapshots retain their existing counts and IDs without optional metadata", () => {
+  const model = new PersonalModel({ version: 1, words: [["please", 9000]], bigrams: [], trigrams: [], seen: ["session:retained"] })
+  expect(model.observe([{ id: "session:retained", text: "please" }])).toBe(false)
+  expect(model.words.get("please")).toBe(9000)
+  expect(model.observe([{ id: "session:new", text: "please" }])).toBe(true)
+  expect(model.words.get("please")).toBe(9001)
+  expect(model.snapshot().seen).toEqual(["session:retained", "session:new"])
 })
 
 test("ignores code, paths, assistant-free fixtures, and oversized pastes", () => {
@@ -454,4 +484,16 @@ test("predicts next words and disambiguates current words across a typo in left 
   expect(complete(predictor, "please rnu ")?.suffix).toBe("tests")
   expect(complete(predictor, "please rnu te")?.suffix).toBe("sts")
   expect(complete(predictor, "please wirte ")?.suffix).toBe("text")
+})
+test("restores supplementary Unicode contexts and rejects structurally invalid model keys", () => {
+  const word = "𐐨".repeat(32)
+  const model = new PersonalModel()
+  model.observe([{ id: "unicode", text: `${word} ${word} ${word}` }])
+  const snapshot = JSON.parse(JSON.stringify(model.snapshot()))
+  const restored = new PersonalModel(snapshot)
+  expect(restored.snapshot()).toEqual(snapshot)
+  expect(restored.bigrams.get(`${word}\0${word}`)).toBe(2)
+  expect(restored.trigrams.get(`${word}\0${word}\0${word}`)).toBe(1)
+  const invalid = new PersonalModel({ ...snapshot, words: [[word + "𐐨", 1], ["invalid_key", 1]], bigrams: [["one", 1], ["a\0b\0c", 1]], trigrams: [["a\0b", 1], [`a\0b\0${word}𐐨`, 1]] })
+  expect(invalid.words.size + invalid.bigrams.size + invalid.trigrams.size).toBe(0)
 })
