@@ -262,10 +262,11 @@ export class WordPredictor {
     }
   }
 
-  private score(word: string, context: readonly string[]): number {
+  private score(word: string, context: readonly string[], typo = false): number {
     const prior = (this.prior.get(word) ?? 0) / (this.priorTotal || 1)
     const personal = (this.personal.words.get(word) ?? 0) / (this.personalTotal || 1)
-    const weight = this.priorTotal ? Math.min(0.7, this.personalTotal / (this.personalTotal + 100)) : 1
+    const ratio = this.personalTotal / (this.personalTotal + 100)
+    const weight = this.priorTotal ? (typo ? Math.min(0.7, ratio) : ratio) : 1
     let score = weight * personal + (1 - weight) * prior
     const previous = context.at(-1)
     const bigram = previous && this.bigramTotals.get(previous)
@@ -275,7 +276,7 @@ export class WordPredictor {
     }
     const pair = context.length === 2 ? context.join("\0") : undefined
     const trigram = pair && this.trigramTotals.get(pair)
-    if (trigram) {
+    if (trigram && trigram.total >= 2) {
       const count = this.personal.trigrams.get(`${pair}\0${word}`) ?? 0
       score = Math.max(count - DISCOUNT, 0) / trigram.total + DISCOUNT * trigram.types / trigram.total * score
     }
@@ -296,7 +297,7 @@ export class WordPredictor {
         if ((this.bigramTotals.get(candidate)?.total ?? 0) < 2) continue
         const weight = typoWeight(word, candidate, true)
         if (!weight) continue
-        const score = this.score(candidate, resolved) * weight
+        const score = this.score(candidate, resolved, true) * weight
         sum += score
         if (score > bestScore) {
           best = candidate
@@ -320,7 +321,9 @@ export class WordPredictor {
     const local = new Map<string, number>()
     for (const word of words) increment(local, word.text)
     const context = this.resolveContext(leftContext(query.before, words), local)
-    const evidence = this.bigramTotals.get(context.at(-1) ?? "")?.total ?? 0
+    const previous = context.at(-1)
+    const pair = context.length === 2 ? context.join("\0") : undefined
+    const evidence = this.bigramTotals.get(previous ?? "")?.total ?? 0
     if (query.next && evidence < 2) return []
     if (!query.next && [...prefix].length < 2 && evidence < 2) return []
     const slash = prefix.includes("/")
@@ -331,11 +334,13 @@ export class WordPredictor {
       if (query.next || slash === word.includes("/")) candidates.set(word, 1)
     }
     for (const word of local.keys()) if (!word.includes("/") && word.startsWith(prefix) && (query.next || !slash)) candidates.set(word, 1)
+    const followed = (word: string) => (previous ? this.personal.bigrams.get(`${previous}\0${word}`) ?? 0 : 0) >= 2 ||
+      (pair ? this.personal.trigrams.get(`${pair}\0${word}`) ?? 0 : 0) >= 2
     const suggest = (): Prediction[] => {
       const ranked: { word: string; score: number; weight: number }[] = []
       let sum = 0
       for (const [word, weight] of candidates) {
-        const base = this.score(word, context) + (query.next ? 0 : 0.003 * Math.min(local.get(word) ?? 0, 3))
+        const base = this.score(word, context, weight < 1) + (query.next ? 0 : 0.003 * Math.min(local.get(word) ?? 0, 3))
         const score = base * weight
         sum += score
         ranked.push({ word, score, weight })
@@ -345,7 +350,7 @@ export class WordPredictor {
       const predictions: Prediction[] = []
       for (const { word: best, score: bestScore, weight: bestWeight } of ranked) {
         const confidence = bestWeight < 1 ? typoConfidence(bestScore, sum) : query.next ? bestScore : bestScore / (sum || 1)
-        if (!bestScore || best === prefix || confidence === undefined || (bestWeight === 1 && confidence < (query.next ? 0.55 : 0.3))) {
+        if (!bestScore || best === prefix || confidence === undefined || (query.next && !followed(best)) || (bestWeight === 1 && confidence < 0.3)) {
           if (!predictions.length) return []
           continue
         }

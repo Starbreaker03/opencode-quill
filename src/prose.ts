@@ -40,7 +40,7 @@ export function maskProse(text: string): string {
   })
   masked = masked.replace(/(`+)[\s\S]*?(?:\1|$)/g, blank)
   masked = masked.replace(/(?:https?:\/\/|www\.)\S+|\[[^\]\n]*\]\([^\)\n]*\)|<[^>\n]+>/g, blank)
-  masked = masked.replace(/^[ \t]*(?:[\/!$]|(?:const|let|var|function|class|import|export)\s|(?:Traceback|Error:)\b).*$/gm, blank)
+  masked = masked.replace(/^[ \t]*(?:[!$]|(?:const|let|var|function|class|import|export)\s|(?:Traceback|Error:)\b).*$/gm, blank)
   masked = masked.replace(/^(?: {4}| {0,3}\t).*$/gm, blank)
   masked = masked.replace(/\S+/g, (token) => {
     const core = token.replace(/^["“‘([{]+|["”’),;:!?}\]]+$/g, "")

@@ -74,6 +74,31 @@ test.each([
   expect(completionQuery(text, text.length)).toBeUndefined()
 })
 
+test("masks leading slash commands while completing and learning trailing prose", () => {
+  expect(completionQuery("/btw", 4)).toBeUndefined()
+  expect(completionQuery("/btw ", 5)).toBeUndefined()
+  expect(completionQuery("/btw can you comp", 17)).toEqual({
+    before: "/btw can you ",
+    prefix: "comp",
+    next: false,
+    words: [
+      { text: "can", start: 5, end: 8 },
+      { text: "you", start: 9, end: 12 },
+    ],
+  })
+  expect(completionQuery("/btw can you ", 13)).toEqual({
+    before: "/btw can you ",
+    prefix: "",
+    next: true,
+    words: [
+      { text: "can", start: 5, end: 8 },
+      { text: "you", start: 9, end: 12 },
+    ],
+  })
+  expect(proseSequences("/btw please run tests").map((sequence) => sequence.map((word) => word.text)))
+    .toEqual([["please", "run", "tests"]])
+})
+
 test("queries slash-joined tokens and trailing-slash prefixes without admitting paths", () => {
   expect(completionQuery("machine/", 8)).toEqual({ before: "", prefix: "machine/", next: false, words: [] })
   expect(completionQuery("rebase machine/", 15)).toEqual({

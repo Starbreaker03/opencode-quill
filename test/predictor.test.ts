@@ -168,15 +168,23 @@ test("learns and completes slash-joined tokens when typing the slash or second s
   expect(complete(predictor, "edit src/compo")).toBeUndefined()
 })
 
-test("preserves baseline vocabulary typo corrections as the personal model grows", () => {
+test("preserves baseline vocabulary typo corrections and personal completion weight as the model grows", () => {
   const model = new PersonalModel({
     ...emptySnapshot(),
-    words: [["alpha", 25_000]],
+    words: [["alpha", 11_000], ["findings", 40], ["find", 15], ["subagents", 50], ["bash", 35]],
+    bigrams: [["make\0sure", 25], ["make\0it", 10], ["make\0the", 10], ["now\0make", 1], ["current\0directory", 11], ["current\0session", 10], ["current\0file", 8]],
+    trigrams: [["now\0make\0it", 1], ["the\0current\0directory", 11], ["the\0current\0session", 10], ["the\0current\0file", 8]],
   })
   const predictor = new WordPredictor(frequencies)
   predictor.setPersonal(model.snapshot())
   expect(complete(predictor, "becua")).toMatchObject({ suffix: "because", word: "because", replace: 5 })
   expect(complete(predictor, "pleae")).toMatchObject({ suffix: "please", word: "please", replace: 5 })
+  expect(complete(predictor, "find")).toMatchObject({ suffix: "ings", word: "findings" })
+  expect(complete(predictor, "su")).toMatchObject({ suffix: "bagents", word: "subagents" })
+  expect(complete(predictor, "ba")).toMatchObject({ suffix: "sh", word: "bash" })
+  expect(complete(predictor, "make ")).toMatchObject({ suffix: "sure", word: "sure" })
+  expect(complete(predictor, "now make ")).toMatchObject({ suffix: "sure", word: "sure" })
+  expect(complete(predictor, "the current ")).toMatchObject({ suffix: "directory", word: "directory" })
 })
 
 test("prompt-local vocabulary is usable without being persisted", () => {
