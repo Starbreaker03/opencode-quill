@@ -505,3 +505,26 @@ test("restores supplementary Unicode contexts and rejects structurally invalid m
   const invalid = new PersonalModel({ ...snapshot, words: [[word + "𐐨", 1], ["invalid_key", 1]], bigrams: [["one", 1], ["a\0b\0c", 1]], trigrams: [["a\0b", 1], [`a\0b\0${word}𐐨`, 1]] })
   expect(invalid.words.size + invalid.bigrams.size + invalid.trigrams.size).toBe(0)
 })
+
+test("completes learned hyphenated words, brand names and filenames from real vocabulary", () => {
+  const model = new PersonalModel()
+  const texts = ["we need doc-drift checks", "fix doc-drift today", "I use OpenCode a lot", "try OpenCode again", "edit install.sh now", "run install.sh again", "the read-only flag", "make it read-only"]
+  model.observe(texts.map((text, index) => ({ id: String(index), text })))
+  const predictor = new WordPredictor(frequencies)
+  predictor.setPersonal(model.snapshot())
+  const complete = (text: string) => predictor.complete(completionQuery(text, text.length)!)
+  expect(complete("fix doc-")).toMatchObject({ suffix: "drift", word: "doc-drift" })
+  expect(complete("fix doc")).toMatchObject({ word: "doc-drift" })
+  expect(complete("we use Open")).toMatchObject({ suffix: "Code", word: "opencode" })
+  expect(complete("please edit insta")).toMatchObject({ suffix: "ll.sh", word: "install.sh" })
+  expect(complete("make it read-")).toMatchObject({ suffix: "only" })
+})
+
+test("a hyphenated or dotted learned word does not hide its shorter stem", () => {
+  const model = new PersonalModel()
+  model.observe(Array.from({ length: 4 }, (_, index) => ({ id: `a${index}`, text: "check zzdoc-drift and zzdoc.md" })))
+  model.observe(Array.from({ length: 2 }, (_, index) => ({ id: `b${index}`, text: "alpha zzdoc beta" })))
+  const predictor = new WordPredictor([])
+  predictor.setPersonal(model.snapshot())
+  expect(predictor.complete(completionQuery("alpha ", 6)!)).toMatchObject({ word: "zzdoc" })
+})

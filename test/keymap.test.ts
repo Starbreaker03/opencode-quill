@@ -33,7 +33,7 @@ test("commands fall through without an eligible suggestion", () => {
 })
 
 test("option parsing preserves host syntax and rejects invalid input", () => {
-  expect(resolveOptions({})).toEqual({ enabled: true, completeAtLineEnd: false, acceptKeys: ["tab", "right"], dismissKeys: ["escape"], cycleNextKeys: [], cyclePreviousKeys: [] })
+  expect(resolveOptions({})).toEqual({ enabled: true, completeAtLineEnd: false, completeShell: true, acceptKeys: ["tab", "right"], dismissKeys: ["escape"], cycleNextKeys: [], cyclePreviousKeys: [] })
   expect(resolveOptions({ completeAtLineEnd: true }).completeAtLineEnd).toBe(true)
   expect(resolveOptions({ acceptKeys: [" ctrl+y ", "ctrl+y"] }).acceptKeys).toEqual(["ctrl+y"])
   for (const input of [{ enabled: "yes" }, { completeAtLineEnd: "yes" }, { completeAtLineEnd: 1 }, { acceptKeys: false }, { acceptKeys: [""] }, { dismissKeys: [1] }, { cycleNextKeys: "tab" }, { cyclePreviousKeys: [null] }]) {

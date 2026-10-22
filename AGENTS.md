@@ -8,7 +8,8 @@ README.md is the user-facing contract — read it before changing behavior.
 ## Layout
 
 - `src/tui.tsx` — V2 plugin entrypoint, lifecycle hooks, keymaps, storage, and session listeners.
-- `src/prose.ts` — prose masking, tokenization, context extraction, and query detection.
+- `src/prose.ts` — prose masking, tokenization, context extraction, query detection, and the `Grammar` type with `proseGrammar`.
+- `src/shell.ts` — `shellGrammar`: shell-mode masking, tokenization, and secret filtering.
 - `src/predictor.ts` — n-gram language model, SUBTLEX prior blending, learning, and candidate ranking.
 - `src/ghost.ts` — OpenTUI buffer painting, cursor tracking, eligibility checks, and insertion.
 - `src/options.ts` — option parsing and validation.
@@ -31,6 +32,10 @@ README.md is the user-facing contract — read it before changing behavior.
   more than once, unless it is a prefix of a learned word used at least as often.
   The model is pruned on persistence and halved past a total-count budget; limits
   live as constants in `src/predictor.ts`.
+- **Shell Model:** A second `PersonalModel`/`WordPredictor` pair built on `shellGrammar`
+  (case-sensitive, no typo correction, no prior). It learns from `shell` session messages
+  (`command`) and is selected by the composer slot's `mode === "shell"`. It stays in
+  `plugin.quill.shell.json`.
 - **Storage Location:** Durable JSON state managed via OpenCode's `context.storage.store()`
   under `~/.local/state/opencode/<channel>/tui/plugin.quill.learning.json` and
   `plugin.quill.settings.json`. Raw prompt text is never written to disk or stored.
@@ -58,6 +63,7 @@ bun run lint:sh
 - Remove listeners and render callbacks on unload; never write to destroyed editors.
 - Keep `@opentui/core` and `@opentui/solid` as `dependencies` on the line OpenCode
   bundles; as peers, npm resolves `@opencode/plugin`'s optional peers to the newest release.
+- Shell learning must skip secrets: any command matching the `SECRET` pattern in `src/shell.ts` is masked whole.
 - Keep learned prompt data out of Git and package tarballs.
 - Keep installed sources identical to this repository when installing updates.
 

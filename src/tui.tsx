@@ -4,23 +4,29 @@ import { InputRenderable, TextareaRenderable, type BoxRenderable } from "@opentu
 import { createEffect, createRoot, createSignal, onCleanup, untrack } from "solid-js"
 import { unwrap } from "solid-js/store"
 import frequencies from "subtlex-word-frequencies"
+import { proseGrammar, type Grammar } from "./prose"
 import { ComposerGhost, dimGhostColor, findComposer } from "./ghost"
 import { completionLayer } from "./keymap"
 import { parseQuillCommand, resolveOptions } from "./options"
 import { emptySnapshot, PersonalModel, WordPredictor } from "./predictor"
+import { shellGrammar } from "./shell"
 
 export default Plugin.define({
   id: "quill",
   setup(context) {
     const options = resolveOptions(context.options)
     const [settings, setSettings] = context.storage.store("settings", {
-      initial: { enabled: options.enabled },
+      initial: { enabled: options.enabled, shell: options.completeShell },
     })
     const [learning, setLearning] = context.storage.store("learning", {
       initial: { snapshot: emptySnapshot() },
     })
+    const [shellLearning, setShellLearning] = context.storage.store("shell", {
+      initial: { snapshot: emptySnapshot() },
+    })
     const predictor = new WordPredictor(frequencies)
-    const composers = new Map<string, { marker: BoxRenderable; normal: () => boolean }>()
+    const shellPredictor = new WordPredictor([], shellGrammar)
+    const composers = new Map<string, { marker: BoxRenderable; mode: () => "normal" | "shell" }>()
     const seeded = new Set<string>()
     const inFlight = new Map<string, { pending: boolean; announce: boolean }>()
     const [revision, setRevision] = createSignal(0)
@@ -28,6 +34,8 @@ export default Plugin.define({
     let disposed = false
     let warned = false
     let resetVersion = 0
+
+    const shellEnabled = () => settings.shell !== false
 
     const routeKey = () => {
       const route = context.ui.router.current()
@@ -47,15 +55,17 @@ export default Plugin.define({
       ghost?.dispose()
       ghost = editor && new ComposerGhost(editor, predictor, () => {
         const key = routeKey()
+        const shell = !!key && composers.get(key)?.mode() === "shell"
         return {
           editor,
-          normal: !!key && composers.get(key)?.normal() === true,
+          normal: !!key && composers.has(key),
           focused: context.renderer.currentFocusedEditor,
           mode: context.keymap.mode.current(),
+          shell,
           selected: context.renderer.hasSelection,
-          enabled: !disposed && settings.enabled && currentEditor() === editor,
+          enabled: !disposed && settings.enabled && (!shell || shellEnabled()) && currentEditor() === editor,
         }
-      }, () => dimGhostColor(context.theme.text.muted), context.renderer, options.completeAtLineEnd)
+      }, () => dimGhostColor(context.theme.text.muted), context.renderer, options.completeAtLineEnd, shellPredictor)
     }
 
     const sessionInfo = (sessionID: string) =>
@@ -85,26 +95,33 @@ export default Plugin.define({
             if (disposed || !settings.enabled) return
             if (sessionInfo(sessionID)?.parentID) return
             if (version !== resetVersion) continue
-            const candidates = context.data.session.message.list(sessionID)
-              .filter((message) => message.type === "user")
-              .slice(-200)
-              .map((message) => ({ id: `${sessionID}:${message.id}`, text: message.text, created: message.time?.created }))
-            const promptsFor = (clearedAt: number | undefined) => candidates
-              .filter((prompt) => clearedAt === undefined || (prompt.created !== undefined && prompt.created >= clearedAt))
-              .map(({ id, text }) => ({ id, text }))
-            const snapshot = unwrap(learning.snapshot)
-            const seen = new Set(snapshot.seen)
-            const prompts = promptsFor(snapshot.clearedAt)
-            if (!prompts.some((prompt) => !seen.has(prompt.id))) continue
-            const model = new PersonalModel(snapshot)
-            if (model.observe(prompts)) {
-              await setLearning((draft) => {
+            const messages = context.data.session.message.list(sessionID)
+            const absorb = async (store: typeof learning, update: typeof setLearning, grammar: Grammar, candidates: { id: string; text: string; created?: number }[]) => {
+              const promptsFor = (clearedAt: number | undefined) => candidates
+                .filter((prompt) => clearedAt === undefined || (prompt.created !== undefined && prompt.created >= clearedAt))
+                .map(({ id, text }) => ({ id, text }))
+              const snapshot = unwrap(store.snapshot)
+              const seen = new Set(snapshot.seen)
+              const prompts = promptsFor(snapshot.clearedAt)
+              if (!prompts.some((prompt) => !seen.has(prompt.id))) return
+              const model = new PersonalModel(snapshot, grammar)
+              if (!model.observe(prompts)) return
+              await update((draft) => {
                 if (disposed || !settings.enabled || version !== resetVersion) return
                 const session = sessionInfo(sessionID)
                 if (!session || session.parentID) return
-                const latest = new PersonalModel(unwrap(draft.snapshot))
+                const latest = new PersonalModel(unwrap(draft.snapshot), grammar)
                 if (latest.observe(promptsFor(latest.clearedAt))) draft.snapshot = latest.snapshot()
               })
+            }
+            await absorb(learning, setLearning, proseGrammar, messages
+              .filter((message) => message.type === "user")
+              .slice(-200)
+              .map((message) => ({ id: `${sessionID}:${message.id}`, text: message.text, created: message.time?.created })))
+            if (shellEnabled()) {
+              await absorb(shellLearning, setShellLearning, shellGrammar, messages
+                .flatMap((message) => message.type === "shell" ? [{ id: `${sessionID}:${message.id}`, text: message.command, created: message.time.created }] : [])
+                .slice(-200))
             }
           } catch (error) {
             if (shouldAnnounce && !disposed && version === resetVersion && !warned) {
@@ -126,7 +143,9 @@ export default Plugin.define({
       }
       const cleared = { ...emptySnapshot(), clearedAt: Date.now() }
       predictor.setPersonal(cleared)
+      shellPredictor.setPersonal(cleared)
       await setLearning((draft) => { draft.snapshot = cleared })
+      await setShellLearning((draft) => { draft.snapshot = cleared })
       ghost?.invalidate()
       context.ui.toast.show({ title: "Quill", message: "Word autocomplete history cleared" })
     }
@@ -140,9 +159,17 @@ export default Plugin.define({
         ghost?.invalidate()
       })
       createEffect(() => {
+        const snapshot = shellLearning.snapshot
+        snapshot.seen.length
+        snapshot.seen.at(-1)
+        shellPredictor.setPersonal(unwrap(snapshot))
+        ghost?.invalidate()
+      })
+      createEffect(() => {
         revision()
         routeKey()
         settings.enabled
+        settings.shell
         context.keymap.mode.current()
         syncEditor()
         ghost?.invalidate()
@@ -184,8 +211,14 @@ export default Plugin.define({
               await clearHistory()
               return
             }
+            if (command.type === "shell") {
+              await setSettings((draft) => { draft.shell = command.value })
+              ghost?.invalidate()
+              context.ui.toast.show({ title: "Quill", message: `Shell autocomplete: ${command.value ? "on" : "off"}` })
+              return
+            }
             if (command.type === "invalid") {
-              context.ui.toast.show({ title: "Quill", message: "Use /quill, /quill on, /quill off, or /quill clear", variant: "warning" })
+              context.ui.toast.show({ title: "Quill", message: "Use /quill, /quill on, /quill off, /quill shell on, /quill shell off, or /quill clear", variant: "warning" })
               return
             }
             const enabled = command.type === "enable" ? command.value : !settings.enabled
@@ -213,7 +246,7 @@ export default Plugin.define({
           const key = input.sessionID ?? "home"
           const node = marker()
           if (!node) return
-          composers.set(key, { marker: node, normal: () => input.mode === "normal" })
+          composers.set(key, { marker: node, mode: () => input.mode })
           setRevision((value) => value + 1)
           onCleanup(() => {
             if (composers.get(key)?.marker !== node) return

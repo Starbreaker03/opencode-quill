@@ -66,10 +66,10 @@ test("protected ranges are masked out of words and break left context", () => {
 })
 
 test.each([
-  "/quill", "!echo hello", "$ git status", "edit src/sub/compo", "edit foo.ts", "edit .conf",
+  "/quill", "!echo hello", "$ git status", "edit src/sub/compo", "edit foo.xyz", "edit .conf",
   "use foo_bar", "use camelCase", "ping @alice", "https://example.com/hel", "let variable",
   "please `complete this", "please `complete this`", "```ts\ncomplete this", "~~~\ncomplete this",
-  "    complete this", "key=secret", "--option", "use auth-token", "port 8080", "[label](link)",
+  "    complete this", "key=secret", "--option", "use -x", "use a--b", "use a-1", "use --frozen-lock", "port 8080", "[label](link)",
 ])("does not complete non-prose: %s", (text) => {
   expect(completionQuery(text, text.length)).toBeUndefined()
 })
@@ -160,4 +160,56 @@ test("large synthetic drafts retain bounded context and reject drafts beyond the
   expect(completionQuery(text + " ", text.length + 1)).toBeUndefined()
   const code = "```\n" + "hidden ".repeat(1000)
   expect(completionQuery(code, code.length)).toBeUndefined()
+})
+
+const learned = (text: string, times = 2) => {
+  const model = new PersonalModel()
+  model.observe(Array.from({ length: times }, (_, index) => ({ id: String(index), text })))
+  return Object.fromEntries(model.snapshot().words)
+}
+
+test("hyphenated words are single words, prefixes may end in a hyphen, and flags stay masked", () => {
+  expect(proseWords("a read-only doc-drift check").map((word) => word.text)).toEqual(["a", "read-only", "doc-drift", "check"])
+  expect(completionQuery("fix doc-", 8)).toMatchObject({ before: "fix ", prefix: "doc-", next: false })
+  expect(completionQuery("fix doc-dr", 10)).toMatchObject({ prefix: "doc-dr" })
+  expect(completionQuery("fix doc- ", 9)).toBeUndefined()
+  expect(learned("see doc-drift now")).toMatchObject({ "doc-drift": 2 })
+  expect(learned("pre- and post-fix --force -x a - b")).not.toHaveProperty("pre")
+  expect(learned("run --frozen-lockfile now")).not.toHaveProperty("frozen")
+  expect(Object.keys(learned("well-known - not-quite-ready --dry-run")).sort()).toEqual(["not-quite-ready", "well-known"])
+})
+
+test("hyphenated words keep their neighbours as context", () => {
+  expect(leftContext("make it read-only ")).toEqual(["it", "read-only"])
+})
+
+test.each([
+  ["OpenCode", true], ["GitHub", true], ["OpenTUI", true], ["CloudLinux", true], ["cPanel", true], ["macOS", true], ["iPhone", true],
+  ["showSidebar", false], ["onClose", false], ["sessionID", false], ["registerLayer", false], ["TuiPluginApi", false], ["devDeps", false],
+])("mixed-case token %s is prose: %s", (token, prose) => {
+  expect(proseWords(`use ${token} here`).map((word) => word.text)).toEqual(prose ? ["use", token.toLowerCase(), "here"] : ["use", "here"])
+  expect(proseWords(`${token}'s`).length > 0).toBe(prose)
+})
+
+test("brand names learn their casing", () => {
+  const model = new PersonalModel()
+  model.observe([{ id: "a", text: "I like OpenCode and GitHub" }, { id: "b", text: "we use OpenCode and GitHub" }])
+  expect(model.snapshot().forms).toEqual(expect.arrayContaining([["OpenCode", 2], ["GitHub", 2]]))
+})
+
+test("bare filenames with known extensions are words, other dotted tokens and paths are not", () => {
+  expect(proseWords("edit install.sh and AGENTS.md then Node.js").map((word) => word.text)).toEqual(["edit", "install.sh", "and", "agents.md", "then", "node.js"])
+  expect(proseWords("edit scripts/changelog.sh, foo.xyz, e.g. v1.ts and a.b.c").map((word) => word.text)).toEqual(["edit", "and"])
+  expect(proseWords("open package.json.").map((word) => word.text)).toEqual(["open", "package.json"])
+  expect(completionQuery("edit pack", 9)).toMatchObject({ prefix: "pack" })
+  expect(completionQuery("edit package.js", 15)).toMatchObject({ prefix: "package.js" })
+  expect(completionQuery("edit src/install.sh", 19)).toBeUndefined()
+})
+
+test("indented lines continue list items but stay masked elsewhere", () => {
+  expect(proseWords("- first item\n    continues here").map((word) => word.text)).toEqual(["first", "item", "continues", "here"])
+  expect(proseWords("1. first\n\n    second paragraph\n        deeper").map((word) => word.text)).toEqual(["first", "second", "paragraph", "deeper"])
+  expect(proseWords("plain text\n    indented code").map((word) => word.text)).toEqual(["plain", "text"])
+  expect(proseWords("- item\ninterrupt\n    indented code").map((word) => word.text)).toEqual(["item", "interrupt"])
+  expect(completionQuery("- item\n    contin", 17)).toMatchObject({ prefix: "contin" })
 })

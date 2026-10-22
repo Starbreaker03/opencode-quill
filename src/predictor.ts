@@ -1,4 +1,4 @@
-import { isWord, leftContext, normalizeWord, proseSequences, proseWords, type CompletionQuery } from "./prose"
+import { leftContext, proseGrammar, proseWords, type CompletionQuery, type Grammar } from "./prose"
 
 export type Frequency = { word: string; count: number }
 export type Snapshot = {
@@ -30,13 +30,13 @@ function sentenceStart(text: string, start: number): boolean {
   return index < 0 || /[\n.!?:]/.test(text[index])
 }
 
-function restore(rows: [string, number][], limit: number, parts = 1, forms = false): Map<string, number> {
+function restore(rows: [string, number][], limit: number, grammar: Grammar, parts = 1, forms = false): Map<string, number> {
   return new Map(rows.slice(0, limit).filter(([key, count]) => {
     if (typeof key !== "string" || key.length > parts * 64 + parts - 1 || !Number.isFinite(count) || count <= 0) return false
     const words = key.split("\0")
-    return words.length === parts && words.every((word) => isWord(word) && (forms
+    return words.length === parts && words.every((word) => grammar.isWord(word) && (forms
       ? word === word.normalize("NFC").replaceAll("’", "'")
-      : word === normalizeWord(word)))
+      : word === grammar.normalize(word)))
   }))
 }
 
@@ -60,12 +60,12 @@ export class PersonalModel {
   readonly seen: Set<string>
   readonly clearedAt: number | undefined
 
-  constructor(snapshot: Snapshot = emptySnapshot()) {
+  constructor(snapshot: Snapshot = emptySnapshot(), private readonly grammar: Grammar = proseGrammar) {
     this.clearedAt = Number.isFinite(snapshot.clearedAt) ? snapshot.clearedAt : undefined
-    this.words = restore(snapshot.words, WORD_LIMIT)
-    this.bigrams = restore(snapshot.bigrams, CONTEXT_LIMIT, 2)
-    this.trigrams = restore(snapshot.trigrams, CONTEXT_LIMIT, 3)
-    this.forms = restore(snapshot.forms ?? [], WORD_LIMIT, 1, true)
+    this.words = restore(snapshot.words, WORD_LIMIT, grammar)
+    this.bigrams = restore(snapshot.bigrams, CONTEXT_LIMIT, grammar, 2)
+    this.trigrams = restore(snapshot.trigrams, CONTEXT_LIMIT, grammar, 3)
+    this.forms = restore(snapshot.forms ?? [], WORD_LIMIT, grammar, 1, true)
     this.seen = new Set(snapshot.seen)
   }
 
@@ -76,13 +76,13 @@ export class PersonalModel {
       this.seen.add(prompt.id)
       changed = true
       if (prompt.text.length > 4000 || prompt.text.split("\n").length > 12) continue
-      for (const sequence of proseSequences(prompt.text)) {
+      for (const sequence of this.grammar.sequences(prompt.text)) {
         const words = sequence.map((word) => word.text)
         for (let index = 0; index < words.length; index++) {
           const { start, end } = sequence[index]
           increment(this.words, words[index])
           const form = prompt.text.slice(start, end).normalize("NFC").replaceAll("’", "'")
-          if (form !== words[index] && !sentenceStart(prompt.text, start)) increment(this.forms, form)
+          if (this.grammar.prose && form !== words[index] && !sentenceStart(prompt.text, start)) increment(this.forms, form)
           if (index > 0) increment(this.bigrams, `${words[index - 1]}\0${words[index]}`)
           if (index > 1) increment(this.trigrams, `${words[index - 2]}\0${words[index - 1]}\0${words[index]}`)
         }
@@ -210,10 +210,10 @@ export class WordPredictor {
   private vocabulary: string[] = []
   private forms = new Map<string, string>()
 
-  constructor(prior: readonly Frequency[]) {
+  constructor(prior: readonly Frequency[], readonly grammar: Grammar = proseGrammar) {
     for (const { word, count } of prior) {
-      const key = normalizeWord(word)
-      if (!isWord(key) || !Number.isFinite(count) || count <= 0) continue
+      const key = grammar.normalize(word)
+      if (!grammar.isWord(key) || !Number.isFinite(count) || count <= 0) continue
       this.prior.set(key, (this.prior.get(key) ?? 0) + count)
       this.priorTotal += count
       if (this.prior.size >= PRIOR_LIMIT) break
@@ -223,7 +223,7 @@ export class WordPredictor {
 
   setPersonal(snapshot: Snapshot): void {
     this.revision++
-    this.personal = new PersonalModel(snapshot)
+    this.personal = new PersonalModel(snapshot, this.grammar)
     this.personalTotal = [...this.personal.words.values()].reduce((sum, count) => sum + count, 0)
     this.bigramTotals = totals(this.personal.bigrams)
     this.trigramTotals = totals(this.personal.trigrams)
@@ -234,7 +234,7 @@ export class WordPredictor {
       const word = learned[index]
       if (this.prior.has(word)) continue
       for (let next = index + 1; next < learned.length && learned[next].startsWith(word); next++) {
-        if (learned[next][word.length] !== "/" && counts.get(learned[next])! >= counts.get(word)!) {
+        if (!"/-.".includes(learned[next][word.length]) && counts.get(learned[next])! >= counts.get(word)!) {
           fragments.add(word)
           break
         }
@@ -243,7 +243,7 @@ export class WordPredictor {
     this.vocabulary = [...new Set([...this.prior.keys(), ...learned.filter((word) => !fragments.has(word))])].sort()
     const forms = new Map<string, [string, number]>()
     for (const [form, count] of this.personal.forms) {
-      const word = normalizeWord(form)
+      const word = this.grammar.normalize(form)
       if ((forms.get(word)?.[1] ?? 0) < count) forms.set(word, [form, count])
     }
     this.forms = new Map([...forms].filter(([word, [, count]]) => count * 2 > (counts.get(word) ?? 0)).map(([word, [form]]) => [word, form]))
@@ -284,6 +284,7 @@ export class WordPredictor {
   }
 
   private resolveContext(raw: readonly string[], local: ReadonlyMap<string, number>): string[] {
+    if (!this.grammar.prose) return [...raw]
     const resolved: string[] = []
     for (const word of raw) {
       if (this.prior.has(word) || (this.personal.words.get(word) ?? 0) >= 2 || (local.get(word) ?? 0) >= 2 || word.length < 3) {
@@ -316,8 +317,8 @@ export class WordPredictor {
   candidates(query: CompletionQuery, limit = 5): Prediction[] {
     const maximum = Number.isFinite(limit) ? Math.max(0, Math.min(5, Math.floor(limit))) : 5
     if (!maximum) return []
-    const prefix = normalizeWord(query.prefix)
-    const words = query.words ?? proseWords(query.before)
+    const prefix = this.grammar.normalize(query.prefix)
+    const words = query.words ?? (this.grammar.prose ? proseWords(query.before) : [])
     const local = new Map<string, number>()
     for (const word of words) increment(local, word.text)
     const context = this.resolveContext(leftContext(query.before, words), local)
@@ -355,12 +356,12 @@ export class WordPredictor {
           continue
         }
         const form = this.forms.get(best) ?? best
-        const shouting = query.prefix.length > 1 && query.prefix === query.prefix.toUpperCase()
+        const shouting = this.grammar.prose && query.prefix.length > 1 && query.prefix === query.prefix.toUpperCase()
         if (bestWeight < 1 || (!query.next && best.startsWith("i'") && query.prefix[0] === "i") ||
           (!query.next && !shouting && form !== best && !form.startsWith(query.prefix))) {
           predictions.push({ suffix: applyCase(query.prefix, form), word: best, confidence, replace: query.prefix.length })
         } else if (query.next) {
-          predictions.push({ suffix: applyCase("", form), word: best, confidence })
+          predictions.push({ suffix: this.grammar.prose ? applyCase("", form) : form, word: best, confidence })
         } else {
           const suffix = form.slice(prefix.length)
           predictions.push({ suffix: shouting ? suffix.toUpperCase() : suffix, word: best, confidence })
@@ -369,7 +370,7 @@ export class WordPredictor {
       return predictions
     }
     const completion = suggest()
-    if (completion.length || query.next || prefix.length < 3 || slash || candidates.has(prefix)) return completion
+    if (completion.length || query.next || prefix.length < 3 || slash || candidates.has(prefix) || !this.grammar.prose) return completion
     for (const word of this.nearbyWords(prefix)) {
       if (candidates.has(word)) continue
       const weight = typoWeight(prefix, word)

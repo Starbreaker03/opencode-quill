@@ -7,6 +7,7 @@ export type Composer = {
   normal: boolean
   focused: unknown
   mode: string
+  shell?: boolean
   selected: boolean
   enabled: boolean
 }
@@ -39,9 +40,9 @@ export function findComposer(marker: Renderable | undefined, isEditor: (node: Re
 }
 
 export class ComposerGhost {
-  private shown: { text: string; offset: number; prediction: Prediction; marks: string; revision: number } | undefined
+  private shown: { text: string; offset: number; prediction: Prediction; marks: string; revision: number; predictor: WordPredictor } | undefined
   private dismissed: { text: string; offset: number } | undefined
-  private memo: { text: string; offset: number; marks: string; revision: number; predictions: Prediction[]; index: number } | undefined
+  private memo: { text: string; offset: number; marks: string; revision: number; predictor: WordPredictor; predictions: Prediction[]; index: number } | undefined
   private disposed = false
   private readonly draw: (buffer: OptimizedBuffer, delta: number) => void
 
@@ -52,9 +53,14 @@ export class ComposerGhost {
     private readonly color: () => RGBA,
     private readonly renderer: CliRenderer,
     private readonly completeAtLineEnd = false,
+    private readonly shellPredictor?: WordPredictor,
   ) {
     this.draw = (buffer) => { if (!this.disposed) this.paint(buffer) }
     renderer.addPostProcessFn(this.draw)
+  }
+
+  private active(): WordPredictor {
+    return this.shellPredictor && this.view().shell ? this.shellPredictor : this.predictor
   }
 
   private offset(): number {
@@ -96,20 +102,21 @@ export class ComposerGhost {
     if (this.dismissed || !eligibleComposer(this.view(), text)) return
     const marks = this.editor.extmarks.getAll()
     const signature = this.marksKey()
-    const revision = this.predictor.modelRevision
-    if (this.memo?.text === text && this.memo.offset === offset && this.memo.marks === signature && this.memo.revision === revision) return this.memo.predictions[this.memo.index]
-    const query = completionQuery(text, offset, this.protectedRanges(marks), this.completeAtLineEnd)
-    const predictions = query ? this.predictor.candidates(query) : []
+    const predictor = this.active()
+    const revision = predictor.modelRevision
+    if (this.memo?.text === text && this.memo.offset === offset && this.memo.marks === signature && this.memo.revision === revision && this.memo.predictor === predictor) return this.memo.predictions[this.memo.index]
+    const query = completionQuery(text, offset, this.protectedRanges(marks), this.completeAtLineEnd, predictor.grammar)
+    const predictions = query ? predictor.candidates(query) : []
     if ((marks.length || offset !== text.length) && predictions[0]?.replace) predictions.length = 0
     else if (marks.length || offset !== text.length) predictions.splice(0, predictions.length, ...predictions.filter((prediction) => !prediction.replace))
     const last = this.shown
-    if (query && !query.next && offset === text.length && last && last.offset === last.text.length && this.memo?.index === 0 && last.revision === revision && last.marks === signature && !last.prediction.replace && text.startsWith(last.text)) {
+    if (query && !query.next && offset === text.length && last && last.offset === last.text.length && this.memo?.index === 0 && last.revision === revision && last.predictor === predictor && last.marks === signature && !last.prediction.replace && text.startsWith(last.text)) {
       const typed = text.slice(last.text.length)
       if (typed && last.prediction.suffix.startsWith(typed) && typed.length < last.prediction.suffix.length) {
         predictions[0] = { ...last.prediction, suffix: last.prediction.suffix.slice(typed.length) }
       }
     }
-    this.memo = { text, offset, marks: signature, revision, predictions, index: 0 }
+    this.memo = { text, offset, marks: signature, revision, predictor, predictions, index: 0 }
     return predictions[0]
   }
 
@@ -140,14 +147,14 @@ export class ComposerGhost {
     } finally {
       buffer.popScissorRect()
     }
-    this.shown = { text, offset, prediction, marks: this.memo!.marks, revision: this.memo!.revision }
+    this.shown = { text, offset, prediction, marks: this.memo!.marks, revision: this.memo!.revision, predictor: this.memo!.predictor }
   }
 
   accept(): boolean {
     const shown = this.shown
     if (!shown || !this.visible()) return false
     const marks = this.editor.extmarks.getAll()
-    if (!completionQuery(shown.text, shown.offset, this.protectedRanges(marks), this.completeAtLineEnd)) return false
+    if (!completionQuery(shown.text, shown.offset, this.protectedRanges(marks), this.completeAtLineEnd, shown.predictor.grammar)) return false
     if ((marks.length || shown.offset !== shown.text.length) && shown.prediction.replace) return false
     this.shown = undefined
     if (shown.prediction.replace) {
@@ -171,7 +178,7 @@ export class ComposerGhost {
   visible(): boolean {
     return !this.disposed && !!this.shown && eligibleComposer(this.view()) &&
       this.editor.plainText === this.shown.text && this.offset() === this.shown.offset &&
-      this.marksKey() === this.shown.marks && this.predictor.modelRevision === this.shown.revision && this.fits(this.shown.prediction)
+      this.marksKey() === this.shown.marks && this.active() === this.shown.predictor && this.shown.predictor.modelRevision === this.shown.revision && this.fits(this.shown.prediction)
   }
 
   canCycle(): boolean {
