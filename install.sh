@@ -21,17 +21,33 @@ fi
 
 target="${1:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 
-node - "$src" "$target" <<'JS'
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "error: pnpm is required; no files were changed" >&2
+  exit 1
+fi
+
+stage="$(mktemp -d "${TMPDIR:-/tmp}/quill-install.XXXXXX")"
+trap 'rm -rf "$stage"' EXIT
+cp "$here/package.json" "$here/pnpm-lock.yaml" "$here/pnpm-workspace.yaml" "$stage/"
+node - "$stage/package.json" <<'JS'
+const fs = require("node:fs")
+const [file] = process.argv.slice(2)
+const manifest = JSON.parse(fs.readFileSync(file, "utf8"))
+for (const name of ["solid-js", "@opencode/plugin"]) {
+  manifest.dependencies = { ...manifest.dependencies, [name]: manifest.devDependencies[name] }
+}
+fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n")
+JS
+if ! (cd "$stage" && pnpm install --lockfile-only --ignore-scripts >/dev/null && pnpm install --prod --frozen-lockfile --ignore-scripts --node-linker=hoisted >/dev/null); then
+  echo "error: runtime dependency install failed; no files were changed" >&2
+  exit 1
+fi
+
+node - "$src" "$target" "$stage/node_modules" <<'JS'
 const fs = require("node:fs")
 const path = require("node:path")
 const { fileURLToPath } = require("node:url")
-const [source, target] = process.argv.slice(2)
-const linked = path.join(path.dirname(source), "node_modules", "subtlex-word-frequencies")
-if (!fs.existsSync(path.join(linked, "index.json"))) {
-  console.error("Missing vocabulary dependency; run pnpm install first. No files were changed.")
-  process.exit(1)
-}
-const dependency = fs.realpathSync(linked)
+const [source, target, modules] = process.argv.slice(2)
 const configDir = path.resolve(target)
 const destination = path.join(configDir, "plugins", "opencode-quill")
 const configFile = path.join(configDir, "cli.json")
@@ -83,9 +99,9 @@ for (const name of fs.readdirSync(source).filter((name) => /\.tsx?$/.test(name))
 }
 fs.rmSync(path.join(destination, "tui.ts"), { force: true })
 fs.copyFileSync(path.join(path.dirname(source), "tsconfig.json"), path.join(destination, "tsconfig.json"))
-const vendored = path.join(destination, "node_modules", "subtlex-word-frequencies")
+const vendored = path.join(destination, "node_modules")
 fs.rmSync(vendored, { recursive: true, force: true })
-fs.cpSync(dependency, vendored, { recursive: true })
+fs.cpSync(modules, vendored, { recursive: true, filter: (from) => path.basename(from) !== ".bin" })
 const temporary = path.join(configDir, `.cli.json-${require("node:crypto").randomUUID()}`)
 try {
   const mode = fs.existsSync(configFile) ? fs.statSync(configFile).mode & 0o777 : 0o600

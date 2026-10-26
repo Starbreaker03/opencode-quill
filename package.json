@@ -43,8 +43,8 @@
   },
   "scripts": {
     "prepare": "husky",
-    "test": "bun test && bash tests/changelog.sh",
-    "test:unit": "bun test",
+    "test": "bun test --timeout 60000 && bash tests/changelog.sh",
+    "test:unit": "bun test --timeout 60000",
     "test:changelog": "bash tests/changelog.sh",
     "typecheck": "tsc --noEmit",
     "lint:sh": "for script in install.sh tests/*.sh scripts/*.sh; do bash -n \"$script\" || exit; done",
