@@ -16,6 +16,13 @@ test("Spanish completes accented prose words from the bundled vocabulary", () =>
   expect(predictor.complete(completionQuery("Estoy muy conten", 16, [], false, spanishGrammar)!)).toMatchObject({ suffix: "to", word: "contento" })
 })
 
+test("Spanish opening punctuation starts a new word", () => {
+  const predictor = predictorFor("es-419")
+  const query = completionQuery("Hola, ¿cóm", 10, [], false, spanishGrammar)!
+  expect(query.prefix).toBe("cóm")
+  expect(predictor.complete(query)).toMatchObject({ suffix: "o", word: "cómo" })
+})
+
 test("Latin American forms outweigh Peninsular-only forms in the bundled vocabulary", () => {
   const counts = new Map(languageSetup["es-419"].vocabulary.map(({ word, count }) => [word, count]))
   expect(counts.get("carro")!).toBeGreaterThan(counts.get("coche")! * 0.3)

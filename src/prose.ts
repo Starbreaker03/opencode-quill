@@ -123,6 +123,7 @@ export const proseGrammar: Grammar = {
 
 export const spanishGrammar: Grammar = {
   ...proseGrammar,
+  boundary: /[ \t\n"“([{¿¡]/,
   pronounI: false,
 }
 
