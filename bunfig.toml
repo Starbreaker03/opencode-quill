@@ -1,5 +1,2 @@
-[install]
-minimumReleaseAge = 259200
-
 [test]
 preload = ["@opentui/solid/preload"]

@@ -32,9 +32,10 @@ jobs:
           # Trusted publishing needs npm >= 11.5.1 (newer than Node 20 ships).
           node-version: 24
           registry-url: "https://registry.npmjs.org"
-      - run: bun install --frozen-lockfile
-      - run: bun run test
-      - run: bun run typecheck
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test
+      - run: pnpm run typecheck
       - name: Check whether the version is already published
         id: published
         run: |
@@ -100,9 +101,10 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
-      - run: bun install --frozen-lockfile
-      - run: bun run test
-      - run: bun run typecheck
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test
+      - run: pnpm run typecheck
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"

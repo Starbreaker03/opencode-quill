@@ -138,7 +138,7 @@ OpenCode installs the package and its dependencies on the next start.
 ```sh
 git clone https://github.com/ozandogrultan/opencode-quill.git
 cd opencode-quill
-bun install
+pnpm install
 ./install.sh
 ```
 
@@ -193,6 +193,7 @@ Restart OpenCode after editing `cli.json`.
 | `enabled` | `boolean` | `true` | Initial default for suggestions and learning; a persisted `/quill` toggle takes precedence. |
 | `completeAtLineEnd` | `boolean` | `false` | Also append completions or next words immediately before a newline within a draft. |
 | `completeShell` | `boolean` | `true` | Initial default for shell-mode suggestions and learning; a persisted `/quill shell` toggle takes precedence. |
+| `language` | `"es-419"` \| `"en"` | `"es-419"` | Vocabulary prior and prose grammar. `es-419` is Latin American Spanish; `en` restores the original English SUBTLEX prior. |
 | `acceptKeys` | `string[]` | `["tab", "right"]` | Keys that accept and insert the active word suggestion. |
 | `dismissKeys` | `string[]` | `["escape"]` | Keys that dismiss the visible suggestion without inserting. |
 | `cycleNextKeys` | `string[]` | `[]` | Optional keys for the next confident word suggestion. |
@@ -275,8 +276,11 @@ Quill learns from your own submitted prompts, never from assistant output:
 
 ### Prediction
 
-- **Baseline prior:** a bundled English word-frequency table (SUBTLEX) gives
-  useful completions from the first keystroke.
+- **Baseline prior:** a bundled word-frequency table gives useful completions
+  from the first keystroke. The default `es-419` table is the 20,000 most
+  frequent Spanish words from FrequencyWords (MIT, OpenSubtitles 2018), with
+  Peninsular-only forms down-weighted and common Latin American forms boosted.
+  Set `language: "en"` for the English SUBTLEX table.
 - **Personal model:** unigram, bigram and trigram counts from your prompts.
   Context evidence falls back from trigram to bigram to unigram as it thins out.
 - **Current draft:** words already in the draft get a small boost.
@@ -329,10 +333,10 @@ recovered, so those messages may be learned again when backfilled.
 ## Development
 
 ```sh
-bun install
-bun run test        # Unit tests and changelog checks
-bun run typecheck   # Type verification (tsc --noEmit)
-bun run lint:sh     # Syntax verification on shell scripts
+pnpm install
+pnpm run test        # Unit tests and changelog checks
+pnpm run typecheck   # Type verification (tsc --noEmit)
+pnpm run lint:sh     # Syntax verification on shell scripts
 ```
 
 ## More OpenCode plugins

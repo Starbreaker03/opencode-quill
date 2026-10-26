@@ -13,9 +13,9 @@ Closes #
 
 ## Checklist
 
-- [ ] `bun run test` passes.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run lint:sh` and `bash scripts/changelog.sh check` pass.
+- [ ] `pnpm run test` passes.
+- [ ] `pnpm run typecheck` passes.
+- [ ] `pnpm run lint:sh` and `bash scripts/changelog.sh check` pass.
 - [ ] Read the README and AGENTS.md; this change preserves composer gating,
       accept-key behaviour, and native undo.
 - [ ] I updated the docs (README / CHANGELOG) where behaviour changed.

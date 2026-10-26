@@ -8,7 +8,7 @@ issues and pull requests are welcome.
 ```bash
 git clone https://github.com/ozandogrultan/opencode-quill.git
 cd opencode-quill
-bun install
+pnpm install
 ```
 
 There is no build step. `src/` holds the V2 plugin and its pure helpers,
@@ -20,9 +20,9 @@ release bookkeeping, and `opencode` transpiles the TSX source at load time.
 Run the full check suite and make sure it passes:
 
 ```bash
-bun run test         # bun test plus the changelog-tooling tests
-bun run typecheck    # tsc --noEmit
-bun run lint:sh      # bash -n on every script
+pnpm run test         # bun test plus the changelog-tooling tests
+pnpm run typecheck    # tsc --noEmit
+pnpm run lint:sh      # bash -n on every script
 ```
 
 CI runs the same checks plus ShellCheck on the scripts.
@@ -75,10 +75,10 @@ docs: document the caveats
 feat!: raise the minimum supported opencode version
 ```
 
-This is enforced locally by Git hooks that `bun install` installs (via husky):
+This is enforced locally by Git hooks that `pnpm install` installs (via husky):
 
 - `commit-msg` runs commitlint over your message.
-- `pre-commit` runs `bun run lint:sh`, `bun run typecheck`, and `bun run test`.
+- `pre-commit` runs `pnpm run lint:sh`, `pnpm run typecheck`, and `pnpm run test`.
 
 Never bypass hooks. Fix failures before committing.
 
@@ -107,7 +107,7 @@ scripts/changelog.sh notes              # the latest released version
 scripts/changelog.sh check              # structure: headings and compare links
 ```
 
-`bun run test:changelog` covers the tooling, and `check` also runs in CI: every
+`pnpm run test:changelog` covers the tooling, and `check` also runs in CI: every
 released heading needs its link definition. See [RELEASING.md](RELEASING.md)
 for the npm trusted-publisher setup.
 
