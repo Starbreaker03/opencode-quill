@@ -3,10 +3,10 @@ import { Plugin } from "@opencode/plugin/tui"
 import { InputRenderable, TextareaRenderable, type BoxRenderable } from "@opentui/core"
 import { createEffect, createRoot, createSignal, onCleanup, untrack } from "solid-js"
 import { unwrap } from "solid-js/store"
-import frequencies from "subtlex-word-frequencies"
-import { proseGrammar, type Grammar } from "./prose"
+import type { Grammar } from "./prose"
 import { ComposerGhost, dimGhostColor, findComposer } from "./ghost"
 import { completionLayer } from "./keymap"
+import { languageSetup } from "./language"
 import { parseQuillCommand, resolveOptions } from "./options"
 import { emptySnapshot, PersonalModel, WordPredictor } from "./predictor"
 import { shellGrammar } from "./shell"
@@ -24,7 +24,8 @@ export default Plugin.define({
     const [shellLearning, setShellLearning] = context.storage.store("shell", {
       initial: { snapshot: emptySnapshot() },
     })
-    const predictor = new WordPredictor(frequencies)
+    const { grammar, vocabulary } = languageSetup[options.language]
+    const predictor = new WordPredictor(vocabulary, grammar)
     const shellPredictor = new WordPredictor([], shellGrammar)
     const composers = new Map<string, { marker: BoxRenderable; mode: () => "normal" | "shell" }>()
     const seeded = new Set<string>()
@@ -114,7 +115,7 @@ export default Plugin.define({
                 if (latest.observe(promptsFor(latest.clearedAt))) draft.snapshot = latest.snapshot()
               })
             }
-            await absorb(learning, setLearning, proseGrammar, messages
+            await absorb(learning, setLearning, grammar, messages
               .filter((message) => message.type === "user")
               .slice(-200)
               .map((message) => ({ id: `${sessionID}:${message.id}`, text: message.text, created: message.time?.created })))

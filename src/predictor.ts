@@ -26,7 +26,7 @@ export function emptySnapshot(): Snapshot {
 
 function sentenceStart(text: string, start: number): boolean {
   let index = start - 1
-  while (index >= 0 && /[ \t"“‘(\[*>#-]/.test(text[index])) index--
+  while (index >= 0 && /[ \t"“‘(\[*>#¿¡-]/.test(text[index])) index--
   return index < 0 || /[\n.!?:]/.test(text[index])
 }
 
@@ -191,13 +191,13 @@ function typoConfidence(score: number, total: number): number | undefined {
   return score
 }
 
-function applyCase(source: string, word: string): string {
+function applyCase(source: string, word: string, pronounI = true): string {
   if (source.length > 1 && source === source.toUpperCase()) return word.toUpperCase()
   const first = source[0]
   if (first && first === first.toUpperCase() && first !== first.toLowerCase()) {
     return word[0].toUpperCase() + word.slice(1)
   }
-  return word === "i" || word.startsWith("i'") ? `I${word.slice(1)}` : word
+  return pronounI && (word === "i" || word.startsWith("i'")) ? `I${word.slice(1)}` : word
 }
 
 export class WordPredictor {
@@ -365,9 +365,9 @@ export class WordPredictor {
         const shouting = this.grammar.prose && query.prefix.length > 1 && query.prefix === query.prefix.toUpperCase()
         if (bestWeight < 1 || (!query.next && best.startsWith("i'") && query.prefix[0] === "i") ||
           (!query.next && !shouting && form !== best && !form.startsWith(query.prefix))) {
-          predictions.push({ suffix: applyCase(query.prefix, form), word: best, confidence, replace: query.prefix.length })
+          predictions.push({ suffix: applyCase(query.prefix, form, this.grammar.pronounI !== false), word: best, confidence, replace: query.prefix.length })
         } else if (query.next) {
-          predictions.push({ suffix: this.grammar.prose ? applyCase("", form) : form, word: best, confidence })
+          predictions.push({ suffix: this.grammar.prose ? applyCase("", form, this.grammar.pronounI !== false) : form, word: best, confidence })
         } else {
           const suffix = form.slice(prefix.length)
           predictions.push({ suffix: shouting ? suffix.toUpperCase() : suffix, word: best, confidence })

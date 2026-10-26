@@ -1,4 +1,6 @@
-export type Options = { enabled: boolean; completeAtLineEnd: boolean; completeShell: boolean; acceptKeys: string[]; dismissKeys: string[]; cycleNextKeys: string[]; cyclePreviousKeys: string[] }
+import { defaultLanguage, languages, type Language } from "./language"
+
+export type Options = { enabled: boolean; completeAtLineEnd: boolean; completeShell: boolean; language: Language; acceptKeys: string[]; dismissKeys: string[]; cycleNextKeys: string[]; cyclePreviousKeys: string[] }
 
 function keys(value: unknown, fallback: string[], name: string): string[] {
   if (value === undefined) return fallback
@@ -6,6 +8,12 @@ function keys(value: unknown, fallback: string[], name: string): string[] {
     throw new Error(`Quill ${name} must be an array of non-empty keybindings`)
   }
   return [...new Set(value.map((key: string) => key.trim()))]
+}
+
+function language(value: unknown): Language {
+  if (value === undefined) return defaultLanguage
+  if (!languages.some((supported) => supported === value)) throw new Error(`Quill language must be one of: ${languages.join(", ")}`)
+  return value as Language
 }
 
 export function resolveOptions(input: Readonly<Record<string, unknown>>): Options {
@@ -16,6 +24,7 @@ export function resolveOptions(input: Readonly<Record<string, unknown>>): Option
     enabled: input.enabled !== false,
     completeAtLineEnd: input.completeAtLineEnd === true,
     completeShell: input.completeShell !== false,
+    language: language(input.language),
     acceptKeys: keys(input.acceptKeys, ["tab", "right"], "acceptKeys"),
     dismissKeys: keys(input.dismissKeys, ["escape"], "dismissKeys"),
     cycleNextKeys: keys(input.cycleNextKeys, [], "cycleNextKeys"),

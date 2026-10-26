@@ -24,6 +24,7 @@ export type Grammar = {
   sequences(text: string): Word[][]
   wordEnd: RegExp
   boundary: RegExp
+  pronounI?: boolean
 }
 
 export function normalizeWord(word: string): string {
@@ -117,6 +118,12 @@ export const proseGrammar: Grammar = {
   sequences: proseSequences,
   wordEnd: WORD_END,
   boundary: /[ \t\n"“([{]/,
+  pronounI: true,
+}
+
+export const spanishGrammar: Grammar = {
+  ...proseGrammar,
+  pronounI: false,
 }
 
 export function leftContext(before: string, words: readonly Word[] = proseWords(before)): string[] {

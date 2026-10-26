@@ -4,6 +4,16 @@ All notable changes are documented in this file using
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-10-26
+
+### Added
+
+- **language:** Latin American Spanish (`es-419`) is the default prose language; set `language: "en"` for the English prior
+
+### Changed
+
+- **tooling:** Migrate to pnpm for installs and lockfile; `install.sh` supports pnpm's linked dependencies
+
 ## [0.6.1] - 2026-10-22
 
 ### Fixed
@@ -140,6 +150,7 @@ All notable changes are documented in this file using
 - Local installer script, full test suite, CI workflows, and release tooling.
 
 [0.6.1]: https://github.com/ozandogrultan/opencode-quill/compare/v0.6.0...v0.6.1
+[0.7.0]: https://github.com/Starbreaker03/opencode-quill/compare/v0.6.1...v0.7.0
 [0.6.0]: https://github.com/ozandogrultan/opencode-quill/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/ozandogrultan/opencode-quill/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/ozandogrultan/opencode-quill/compare/v0.5.0...v0.5.1
